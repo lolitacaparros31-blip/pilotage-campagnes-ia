@@ -1,0 +1,7 @@
+# Ne jamais mettre vos données dans le dépôt GitHub
+*.csv
+*.xls
+*.xlsx
+*.html
+__pycache__/
+.venv/

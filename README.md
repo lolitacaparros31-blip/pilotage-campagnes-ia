@@ -1,0 +1,39 @@
+# Pilotage de campagnes par l'IA (Streamlit)
+
+Importez vos exports CSV/Excel : tableau de bord, prévisions, simulateur, test A/B, commentaires, rapport HTML.
+**100 % gratuit. L'IA recommande, l'humain décide. Aucune donnée n'est inventée.**
+
+## Lancer sur son ordinateur (privé)
+```
+pip install -r requirements.txt
+streamlit run app.py
+```
+
+## Publier gratuitement (lien web)
+1. Créer un dépôt sur github.com (de préférence **privé**) et y envoyer ces fichiers.
+2. Aller sur share.streamlit.io, se connecter avec GitHub, cliquer **Create app**.
+3. Choisir le dépôt, la branche `main`, le fichier `app.py`, puis **Deploy**.
+4. Pour restreindre l'accès : réglages de l'appli > Sharing > inviter uniquement votre e-mail
+   (le nombre d'applis privées gratuites est limité : vérifier sur le site).
+
+Ne mettez JAMAIS vos fichiers de données dans le dépôt (le `.gitignore` les exclut).
+
+## Les fichiers
+| Fichier | Rôle |
+|---|---|
+| `app.py` | L'interface (onglets, boutons) |
+| `moteur_analyse.py` | Le calcul (identique au notebook Colab) |
+| `contexte.py` | Réglages, profils de campagne (`PROFILS`), lancement du moteur |
+| `prevision.py` | Prévisions : courbe, meilleurs créneaux, objectif atteignable |
+
+## Faire évoluer
+| Je veux… | Je modifie… |
+|---|---|
+| Reconnaître un nouvel export | `ALIAS` dans `moteur_analyse.py` |
+| Un nouvel indicateur | `kpis()` dans `moteur_analyse.py` |
+| Un nouveau sujet (ex. association) | `PROFILS` dans `contexte.py` |
+| Changer la méthode de prévision | `prevision.py` |
+
+## Limites
+Les prévisions prolongent le passé : en dessous de 8 semaines de données, l'outil refuse de prévoir.
+Les statistiques ne prouvent pas la cause d'un résultat et ne voient pas le hors-ligne.
