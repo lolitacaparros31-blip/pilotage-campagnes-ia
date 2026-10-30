@@ -18,6 +18,7 @@ from scipy import stats
 from contexte import analyser, PROFILS, ORDRE_JOURS
 import prevision as prev
 import graphiques as gr
+import rapport_pdf
 
 # Palette Pantone A/W 26-27, chaque couleur a un rôle unique
 POSEIDON = "#123955"   # structure : titres, navigation, texte (confiance, lisibilité)
@@ -730,6 +731,39 @@ def explication_calcul():
             "- **Alertes** : trois semaines de suite dans le même sens.\n"
             "- **Prévisions** : tendance des semaines passées avec une fourchette à 80 % ; refusées en dessous de 8 semaines de données.\n"
             "- **Mes textes** sont rédigés par des règles explicables à partir de vos chiffres : rien n'est inventé.")
+
+
+def pdf_bytes():
+    """Rapport PDF complet : même contenu que le tableau de bord, mis en page pour être rendu ou envoyé."""
+    camps = [dict(nom=nom, statut=str(r["Statut"]), style=statut_cle(r["Statut"]), kpi=str(r["_kpi"]), valeur=fk(nom),
+                  evolution=f"{ec(r['Écart à la médiane'])} {LIB_ECART}", publications=int(r["Publications"]),
+                  ecart=(None if pd.isna(r["Écart à la médiane"]) else float(r["Écart à la médiane"]))) for nom, r in CAMP.iterrows()]
+    series = []
+    for nom, r in CAMP.iterrows():
+        x = serie_semaine(nom)
+        if x is not None:
+            series.append(dict(nom=nom, kpi=str(r["_kpi"]), style=statut_cle(r["Statut"]), dates=list(x.index.to_pydatetime()), valeurs=[float(v) for v in x.values]))
+    alertes = []
+    if ns["SENT"] is not None and "ALERTE" in ns["ALERTE_TXT"]:
+        alertes.append(("faible", "<b>Alerte e-réputation</b> : " + alerte_courte()))
+    alertes += list(alertes_proactives())
+    # graphiques du moteur : si les campagnes n'ont pas le même indicateur, on ne garde que ceux qui restent lisibles
+    ok = {"sentiment", "creneaux"} if HETERO else {"canal", "benchmark", "creneaux", "cout", "sentiment"}
+    if not HEURE_OK:
+        ok.discard("creneaux")
+    graphes = [(n, base64.b64decode(b64)) for _, n, b64 in ns["GRAPHES"] if n in ok]
+    # limites : les avertissements « valeurs manquantes » sont regroupés en une ligne
+    lims = ns["limites"]()
+    manq = [m for l in lims for m in re.findall(r"dans (\w+) \(laissées", str(l))]
+    lims = [l for l in lims if not ("Import :" in str(l) and "manquante" in str(l))]
+    if manq:
+        lims.append(f"Certaines colonnes ne sont pas renseignées partout ({', '.join(manq)}) : les valeurs manquantes sont laissées vides, jamais inventées.")
+    return rapport_pdf.construire_pdf(dict(
+        titre="Rapport de campagne", entete=time.strftime("Rapport du %d/%m/%Y"), hetero=HETERO,
+        sous_titre=f"{periode().capitalize()} · {len(CAMP)} campagnes · {len(DF)} publications · objectif « {objectif} » · profil « {profil} »",
+        demo=("Données fictives (démonstration)" if (mode == "demo" or EXEMPLE_ACTIF) else ""),
+        bilan=message_mia(), alertes=alertes, kpis=ns["CARTES"], campagnes=camps, series=series, graphes=graphes,
+        priorites=priorites(), recommandations=ns["recommandations"](), limites=lims))
 
 
 def carte_campagne_html(nom):
@@ -1525,6 +1559,7 @@ if page == "rapport":
 
     st.divider()
     st.markdown("#### Partager le rapport")
+    st.download_button("Enregistrer le rapport en PDF", pdf_bytes(), file_name="rapport_lumen.pdf", mime="application/pdf", type="primary", key="pdf_rapports")
     st.button("Voir tous les exports (Excel, CSV, synthèse de Mia)", on_click=aller, args=("donnees",), key="vers_donnees")
     c1, c2 = st.columns(2)
     with c1:
@@ -1541,7 +1576,6 @@ if page == "rapport":
                                    file_name="rapport_campagnes.html", mime="text/html")
             except Exception as e:
                 st.error(f"Le rapport n'a pas pu être généré : {e}")
-        st.caption("Astuce : pour un PDF, ouvrez le rapport HTML puis Imprimer › Enregistrer en PDF.")
     with c2:
         st.download_button("Tableau des campagnes (CSV)", tableau_affichage(CAMP).to_csv().encode("utf-8"),
                            file_name="comparaison_campagnes.csv", mime="text/csv")
@@ -1667,11 +1701,10 @@ if page == "donnees":
                         f'<div style="height:34px;margin-top:6px;border-bottom:3px solid {NEPTUNE};border-radius:0 0 40% 0"></div></div></div>', unsafe_allow_html=True)
             with h2:
                 st.markdown(f'<span class="pill2" style="margin:0">LE PLUS COMPLET</span><div class="serif" style="font-size:24px;color:{POSEIDON};margin:4px 0">Rapport complet</div>'
-                            f'<div style="font-size:14px;color:{GRIS};margin-bottom:10px">Graphiques, alertes et recommandations de Mia dans un seul document, prêt pour un rendez-vous client.</div>', unsafe_allow_html=True)
+                            f'<div style="font-size:14px;color:{GRIS};margin-bottom:10px">Graphiques, alertes et recommandations de Mia dans un seul document : un PDF prêt à rendre ou à envoyer, ou une page HTML.</div>', unsafe_allow_html=True)
                 b1, b2 = st.columns(2)
-                b1.download_button("Télécharger (HTML)", ns["HTML_DASH"].encode("utf-8"), file_name="rapport_lumen.html", mime="text/html", type="primary", width="stretch")
-                with b2.popover("Enregistrer en PDF", width="stretch"):
-                    st.markdown("1. Téléchargez le rapport (HTML) et ouvrez-le dans votre navigateur.\n2. Faites **Ctrl + P** (ou Imprimer).\n3. Choisissez **Enregistrer au format PDF**.")
+                b1.download_button("Enregistrer en PDF", pdf_bytes(), file_name="rapport_lumen.pdf", mime="application/pdf", type="primary", width="stretch")
+                b2.download_button("Télécharger en HTML", ns["HTML_DASH"].encode("utf-8"), file_name="rapport_lumen.html", mime="text/html", width="stretch")
         txt_synth = synthese_texte()
         t1 = st.columns(2)
         tuile_export(t1[0], "csv", "Comparaison des campagnes", "CSV", "#2E8B57", "Le tableau de vos campagnes, qui s'ouvre directement dans Excel.",

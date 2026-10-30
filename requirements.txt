@@ -8,3 +8,4 @@ openpyxl
 xlrd
 requests
 altair>=5
+reportlab
