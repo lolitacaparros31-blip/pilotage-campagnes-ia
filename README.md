@@ -40,3 +40,8 @@ Ne mettez JAMAIS vos fichiers de données dans le dépôt (le `.gitignore` les e
 ## Limites
 Les prévisions prolongent le passé : en dessous de 8 semaines de données, l'outil refuse de prévoir.
 Les statistiques ne prouvent pas la cause d'un résultat et ne voient pas le hors-ligne.
+
+## Assistant IA avec Gemini (facultatif)
+Sans clé, l'assistant fonctionne en mode simulé. Pour activer Gemini, ajouter dans Streamlit Cloud
+(réglages de l'appli > **Secrets**) : `GEMINI_API_KEY = "votre_clé"`. La clé ne va JAMAIS dans le code ni sur GitHub.
+Seuls des chiffres agrégés sont envoyés à Gemini, jamais les fichiers importés. Limite : 15 questions par visite.

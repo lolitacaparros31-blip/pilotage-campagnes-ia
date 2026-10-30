@@ -4,15 +4,14 @@ Lancer en local :  streamlit run app.py
 Quatre espaces : Tableau de bord, Campagnes, Assistant IA, Rapports.
 Principe : l'IA recommande, l'humain décide. Aucune donnée n'est inventée.
 """
-import base64
 import numpy as np
 import pandas as pd
 import streamlit as st
-import matplotlib.pyplot as plt
 from scipy import stats
 
 from contexte import analyser, PROFILS, ORDRE_JOURS
 import prevision as prev
+import graphiques as gr
 
 # Palette Pantone A/W 26-27, chaque couleur a un rôle unique
 POSEIDON = "#123955"   # structure : titres, navigation, texte (confiance, lisibilité)
@@ -63,17 +62,6 @@ def carte(texte, style="info"):
 
 def badge(texte, style="simule"):
     return f'<span class="badge {style}">{texte}</span>'
-
-
-def habiller(ax, titre):
-    ax.set_title(titre, loc="left", fontsize=12, fontweight="bold", color=POSEIDON, pad=10)
-    for s_ in ("top", "right"):
-        ax.spines[s_].set_visible(False)
-    for s_ in ("left", "bottom"):
-        ax.spines[s_].set_color("#D6CEBF")
-    ax.tick_params(colors=GRIS)
-    ax.grid(axis="y", color="#E8E1D3", lw=.8)
-    ax.set_axisbelow(True)
 
 
 # ------------------------------------------------------------------ réglages et données
@@ -217,23 +205,6 @@ def tableau_affichage(t):
     return v[cols]
 
 
-def graphe_campagnes(t, col, titre, est_taux):
-    t = t[[col]].dropna().sort_values(col)
-    fig, ax = plt.subplots(figsize=(7, 0.55 * len(t) + 1.2))
-    ref = t[col].median()
-    couleurs = [NEPTUNE if v >= ref * 1.1 else (SPICE if v <= ref * 0.9 else ALL_ABOARD) for v in t[col]]
-    bars = ax.barh(t.index, t[col], color=couleurs, height=.6)
-    for b, v in zip(bars, t[col]):
-        lab = (f"{v * 100:.1f} %" if est_taux else (f"{v:.2f}" if v < 100 else espace(v)))
-        ax.text(v, b.get_y() + b.get_height() / 2, "  " + lab, va="center", fontsize=9, color=POSEIDON)
-    ax.axvline(ref, color=GRIS, ls=":", lw=1)
-    habiller(ax, titre)
-    ax.grid(axis="y", visible=False)
-    ax.grid(axis="x", color="#E8E1D3")
-    fig.tight_layout()
-    return fig
-
-
 def serie_mensuelle_campagnes(d, col, camps, taux):
     d = d[d["campagne"].isin(camps)].dropna(subset=["date", col])
     if d.empty:
@@ -251,11 +222,20 @@ def afficher_cartes():
 
 
 def montrer_graphe(nom):
-    for _, n, b64 in ns["GRAPHES"]:
-        if n == nom:
-            st.image(base64.b64decode(b64), width="stretch")
-            return True
-    return False
+    """Graphique interactif : survol = détail, molette = zoom (tendance), clic sur la légende = mise en avant."""
+    est_taux, comp = ns["EST_TAUX"], ns["COMPORTEMENT"]
+    ch = {
+        "tendance": lambda: gr.tendance(DF, METRIQUE, NOM_M, est_taux),
+        "canal": lambda: gr.par_groupe(comp["canal"], "canal", NOM_M, est_taux, f"{NOM_M} médian par canal") if "canal" in comp else None,
+        "benchmark": lambda: gr.benchmark(ns["BENCH"], NOM_M, est_taux),
+        "creneaux": lambda: gr.creneaux(DF, METRIQUE, NOM_M, est_taux, ORDRE_JOURS),
+        "cout": lambda: gr.cout_performance(DF, METRIQUE, NOM_M, est_taux),
+        "sentiment": lambda: gr.sentiment(ns["SENT"]),
+    }[nom]()
+    if ch is None:
+        return False
+    st.altair_chart(ch, width="stretch")
+    return True
 
 
 # ------------------------------------------------------------------ textes de l'assistant (règles explicables, sans IA générative)
@@ -324,6 +304,85 @@ def idees_publications():
     ]
 
 
+
+# ------------------------------------------------------------------ Gemini (facultatif)
+# La clé se met dans les « Secrets » de Streamlit Cloud, JAMAIS dans le code :
+#   GEMINI_API_KEY = "..."      (et facultatif : GEMINI_MODEL = "...")
+# Sans clé, l'assistant reste en mode simulé (réponses construites à partir des chiffres).
+LIMITE_QUESTIONS = 15
+
+
+def secret(nom, defaut=None):
+    try:
+        return st.secrets.get(nom, defaut)
+    except Exception:
+        return defaut
+
+
+CLE_GEMINI = secret("GEMINI_API_KEY")
+MODELE_GEMINI = secret("GEMINI_MODEL", "gemini-2.5-flash")
+
+
+def contexte_ia():
+    """Uniquement des chiffres agrégés : aucun fichier brut n'est envoyé."""
+    forts, faibles = points_forts_difficultes()
+    nettoyer = lambda x: x.replace("<b>", "").replace("</b>", "")
+    prevu = ("indisponible : " + res["erreur"]) if "erreur" in res else (
+        f"{espace(res['prevision']['prévision'].head(4).sum())} {nom_cible} sur 4 semaines "
+        f"(fourchette {espace(res['prevision']['bas'].head(4).sum())} à {espace(res['prevision']['haut'].head(4).sum())}), confiance {res['confiance']}")
+    comp = ns["COMPORTEMENT"]
+    lignes = [
+        f"Données : {'FICTIVES (démo : lancement d’un festival)' if mode == 'demo' else 'réelles importées'}, {periode()}, {len(DF)} publications, {len(CAMP)} campagnes.",
+        f"Objectif : {objectif}. Indicateur suivi : {NOM_M}. Profil : {profil} (ton {ns['P']['ton']} ; règle : {ns['P']['regle']}).",
+        "Chiffres clés (médianes) : " + " ; ".join(f"{n} = {v}" for n, v, _ in ns["CARTES"]),
+        "Tableau des campagnes (CSV) :", tableau_affichage(CAMP).to_csv(),
+        "Points forts : " + " | ".join(map(nettoyer, forts)),
+        "Difficultés : " + " | ".join(map(nettoyer, faibles)),
+        "Recommandations calculées : " + " | ".join(map(nettoyer, ns["recommandations"]())),
+        f"Prévision : {prevu}.",
+        f"Commentaires : {ns['ALERTE_TXT']}",
+    ]
+    for c in ("format", "jour", "heure"):
+        if c in comp:
+            lignes.append(f"Classement par {c} ({NOM_M} médian, nombre de publications) : "
+                          + " ; ".join(f"{i} = {fm(r['median'])} (n={int(r['count'])})" for i, r in comp[c].head(5).iterrows()))
+    return "\n".join(lignes)
+
+
+CONSIGNE = ("Tu es l'assistant IA d'une plateforme d'analyse de campagnes de communication. Réponds en français, "
+            "de façon courte, claire et concrète, à un professionnel de la communication qui n'est pas statisticien. "
+            "Appuie-toi UNIQUEMENT sur les données fournies ; si l'information n'y est pas, dis-le au lieu d'inventer. "
+            "Signale quand un résultat repose sur peu de publications. Ne donne jamais d'ordre : propose, l'humain décide.")
+
+
+def demander_gemini(messages):
+    """messages = [(rôle 'user'|'model', texte)]. Retourne (texte, erreur)."""
+    import requests
+    corps = {
+        "system_instruction": {"parts": [{"text": CONSIGNE + "\n\nDONNÉES :\n" + contexte_ia()}]},
+        "contents": [{"role": r, "parts": [{"text": t}]} for r, t in messages],
+        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1200},
+    }
+    try:
+        rep = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{MODELE_GEMINI}:generateContent",
+                            headers={"x-goog-api-key": CLE_GEMINI, "Content-Type": "application/json"}, json=corps, timeout=60)
+        data = rep.json()
+        if rep.status_code != 200:
+            return None, data.get("error", {}).get("message", f"erreur {rep.status_code}")
+        parts = data["candidates"][0]["content"]["parts"]
+        return "".join(p.get("text", "") for p in parts).strip(), None
+    except Exception as e:
+        return None, f"{type(e).__name__} : {e}"
+
+
+def quota_ok():
+    n = st.session_state.get("nb_questions", 0)
+    if n >= LIMITE_QUESTIONS:
+        st.warning(f"Limite de {LIMITE_QUESTIONS} questions atteinte pour cette visite (protection de la clé). Rechargez la page pour recommencer.")
+        return False
+    st.session_state["nb_questions"] = n + 1
+    return True
+
 # ------------------------------------------------------------------ les quatre espaces
 tab_bord, tab_camp, tab_ia, tab_rapport = st.tabs(["📊 Tableau de bord", "📣 Campagnes", "🤖 Assistant IA", "📄 Rapports"])
 
@@ -389,24 +448,13 @@ with tab_camp:
         ind = c1.selectbox("Indicateur à comparer", noms, index=noms.index(defaut))
         col, est_taux = dispo[ind]
         with c1:
-            fig = graphe_campagnes(t, ind, f"{ind} par campagne (pointillé = médiane)", est_taux)
-            st.pyplot(fig)
-            plt.close(fig)
+            st.altair_chart(gr.campagnes(t, ind, f"{ind} par campagne (pointillé = médiane)", est_taux), width="stretch")
         with c2:
-            st.markdown(f"**Évolution par mois : {ind}**")
             mensuel = serie_mensuelle_campagnes(DF, col, choix, est_taux or col in ("cpa", "roas"))
             if mensuel is None or mensuel.empty:
                 st.info("Il faut des dates pour suivre l'évolution.")
             else:
-                fig, ax = plt.subplots(figsize=(7, 4))
-                for i, c in enumerate(mensuel.columns):
-                    ax.plot(mensuel.index, mensuel[c], lw=2, color=PAL[i % len(PAL)], label=c, marker="o", ms=3)
-                habiller(ax, "")
-                ax.legend(frameon=False, fontsize=8, loc="upper left", ncol=2)
-                fig.autofmt_xdate()
-                fig.tight_layout()
-                st.pyplot(fig)
-                plt.close(fig)
+                st.altair_chart(gr.evolution_campagnes(mensuel, ind, est_taux), width="stretch")
 
         st.subheader("🔎 Fiche campagne")
         nom_c = st.selectbox("Ouvrir la fiche de", choix)
@@ -488,15 +536,7 @@ with tab_ia:
             st.warning(res["erreur"])
         else:
             h, p = res["historique"], res["prevision"]
-            fig, ax = plt.subplots(figsize=(9, 3.6))
-            ax.plot(h.index, h.values, color=POSEIDON, lw=2.2, label="Historique")
-            ax.plot(p.index, p["prévision"], color=ALL_ABOARD, lw=2.4, ls="--", label="Prévision")
-            ax.fill_between(p.index, p["bas"], p["haut"], color=ALL_ABOARD, alpha=.2, label="Fourchette 80 %")
-            habiller(ax, "")
-            ax.legend(frameon=False, loc="upper left")
-            fig.autofmt_xdate()
-            st.pyplot(fig)
-            plt.close(fig)
+            st.altair_chart(gr.prevision(h, p, nom_cible), width="stretch")
             niveau = "🟢 correcte" if res["confiance"] == "correcte" else "🟠 fragile (peu de semaines d'historique)"
             st.markdown(f"**Méthode :** {res['methode']}  \n**Confiance :** {niveau} ({res['semaines']} semaines)  \n**À savoir :** {res['limite']}")
             with st.expander("Voir les chiffres"):
@@ -603,12 +643,26 @@ with tab_ia:
                 c.markdown(f"**{titre}**")
                 c.dataframe(t, hide_index=True, width="stretch")
 
-        st.markdown("##### Idées de publications " + badge("fonction simulée"), unsafe_allow_html=True)
         canal_i, fmt_i, jour_i, heure_i, ton_i, idees = idees_publications()
-        st.caption(f"Modèles construits à partir de ce qui marche le mieux dans vos données ({fmt_i}, {canal_i}, {jour_i} {heure_i} h) et du ton conseillé « {ton_i} ». "
-                   "Dans une version complète, un modèle de langage rédigerait ces textes ; ici ce sont des modèles prédéfinis.")
-        for idee in idees:
-            carte(idee.replace("**", "<b>", 1).replace("**", "</b>", 1), "ia")
+        if CLE_GEMINI:
+            st.markdown("##### Idées de publications " + badge("✨ rédigées par Gemini", "ia"), unsafe_allow_html=True)
+            st.caption(f"Gemini s'appuie sur ce qui marche le mieux dans vos données ({fmt_i}, {canal_i}, {jour_i} {heure_i} h) et sur le ton « {ton_i} ». Relisez avant de publier.")
+            if st.button("✨ Rédiger 3 publications") and quota_ok():
+                with st.spinner("Gemini rédige…"):
+                    txt, err = demander_gemini([("user",
+                        f"Rédige 3 propositions de publications prêtes à poster pour {canal_i}, au format {fmt_i}, à publier le {jour_i} vers {heure_i} h. "
+                        "Pour chacune : un titre court, le texte (avec emojis si adapté au canal), l'appel à l'action, et une phrase qui explique pourquoi, d'après les données.")])
+                st.session_state["idees_gemini"] = txt or f"⚠️ Gemini indisponible ({err}). Voici les modèles prédéfinis ci-dessous."
+            if st.session_state.get("idees_gemini"):
+                with st.container(border=True):
+                    st.markdown(st.session_state["idees_gemini"])
+        else:
+            st.markdown("##### Idées de publications " + badge("fonction simulée"), unsafe_allow_html=True)
+            st.caption(f"Modèles construits à partir de ce qui marche le mieux dans vos données ({fmt_i}, {canal_i}, {jour_i} {heure_i} h) et du ton conseillé « {ton_i} ». "
+                       "Avec une clé Gemini, ces textes seraient rédigés par l'IA.")
+        if not CLE_GEMINI or not st.session_state.get("idees_gemini"):
+            for idee in idees:
+                carte(idee.replace("**", "<b>", 1).replace("**", "</b>", 1), "ia")
 
         st.markdown("##### Test A/B : quelle variante est meilleure ?")
         c = st.columns(4)
@@ -647,8 +701,12 @@ with tab_ia:
     # --- 6. question (simulé)
     with s6:
         st.subheader("Poser une question à l'assistant")
-        st.markdown(badge("fonction simulée") + " &nbsp;Les réponses sont construites à partir de vos chiffres, sans IA générative. "
-                    "Une version complète brancherait ici un modèle de langage.", unsafe_allow_html=True)
+        if CLE_GEMINI:
+            st.markdown(badge("✨ Gemini", "ia") + " &nbsp;Posez votre question librement. Seuls des chiffres agrégés (tableau des campagnes, indicateurs) "
+                        "sont envoyés à Gemini, jamais vos fichiers. <b>L'IA propose, vous décidez.</b>", unsafe_allow_html=True)
+        else:
+            st.markdown(badge("fonction simulée") + " &nbsp;Les réponses sont construites à partir de vos chiffres, sans IA générative. "
+                        "Avec une clé Gemini, vous pourriez poser vos propres questions.", unsafe_allow_html=True)
         forts, faibles = points_forts_difficultes()
         canal_i, fmt_i, jour_i, heure_i, ton_i, _ = idees_publications()
         reponses = {
@@ -662,13 +720,39 @@ with tab_ia:
                 if "erreur" not in res else res["erreur"]),
             "Mon public est-il satisfait ?": (ns["ALERTE_TXT"] if ns["SENT"] is not None else "Aucun commentaire importé."),
         }
-        q = st.radio("Choisissez une question", list(reponses), index=None)
-        if q:
-            with st.chat_message("user", avatar="🧑"):
-                st.write(q)
-            with st.chat_message("assistant", avatar="🤖"):
-                st.markdown(reponses[q], unsafe_allow_html=True)
-                st.caption("Réponse fondée sur vos données. À vous de décider.")
+        if CLE_GEMINI:
+            histo = st.session_state.setdefault("chat", [])
+            q = st.pills("Exemples de questions", list(reponses), key="pill_q")
+            libre = st.chat_input("Votre question (ex. : « Quelle campagne arrêter ? »)")
+            question = libre or (q if q and st.session_state.get("pill_deja") != q else None)
+            if q:
+                st.session_state["pill_deja"] = q
+            for r, t in histo:
+                with st.chat_message("user" if r == "user" else "assistant", avatar="🧑" if r == "user" else "🤖"):
+                    st.markdown(t)
+            if question and quota_ok():
+                with st.chat_message("user", avatar="🧑"):
+                    st.markdown(question)
+                with st.chat_message("assistant", avatar="🤖"):
+                    with st.spinner("Gemini réfléchit…"):
+                        txt, err = demander_gemini(histo[-6:] + [("user", question)])
+                    if txt:
+                        st.markdown(txt)
+                        histo += [("user", question), ("model", txt)]
+                    else:
+                        st.warning(f"Gemini est indisponible ({err}). Réponse de secours construite à partir de vos chiffres :")
+                        st.markdown(reponses.get(question, "Choisissez une des questions proposées."), unsafe_allow_html=True)
+            if histo and st.button("Effacer la conversation"):
+                st.session_state["chat"] = []
+                st.rerun()
+        else:
+            q = st.radio("Choisissez une question", list(reponses), index=None)
+            if q:
+                with st.chat_message("user", avatar="🧑"):
+                    st.write(q)
+                with st.chat_message("assistant", avatar="🤖"):
+                    st.markdown(reponses[q], unsafe_allow_html=True)
+                    st.caption("Réponse fondée sur vos données. À vous de décider.")
 
 # ================================================================== D. RAPPORTS
 with tab_rapport:
@@ -680,9 +764,7 @@ with tab_rapport:
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("#### 1. Résultats par campagne")
-        fig = graphe_campagnes(CAMP, "_perf", f"{NOM_M} médian par campagne", ns["EST_TAUX"])
-        st.pyplot(fig)
-        plt.close(fig)
+        st.altair_chart(gr.campagnes(CAMP, "_perf", f"{NOM_M} médian par campagne", ns["EST_TAUX"]), width="stretch")
     with c2:
         st.markdown("#### 2. Tendance")
         montrer_graphe("tendance")

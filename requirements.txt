@@ -6,3 +6,5 @@ scikit-learn
 matplotlib
 openpyxl
 xlrd
+requests
+altair>=5
