@@ -4,6 +4,7 @@ Lancer en local :  streamlit run app.py
 Quatre espaces : Tableau de bord, Campagnes, Assistant IA, Rapports.
 Principe : l'IA recommande, l'humain décide. Aucune donnée n'est inventée.
 """
+import io
 import re
 import sys
 import time
@@ -68,6 +69,12 @@ section[data-testid="stSidebar"] [data-testid="stRadioOption"]:hover {{backgroun
 section[data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] {{background:#fff;border-color:{FUCHSIA};box-shadow:0 4px 12px rgba(158,44,106,.15)}}
 section[data-testid="stSidebar"] [data-testid="stRadioOption"] > div > div:first-child {{display:none}}
 section[data-testid="stSidebar"] [data-testid="stRadioOption"] p {{font-size:15px;font-weight:600;color:{POSEIDON}}}
+.etat-donnees {{background:#fff;border:1px solid #EADDE0;border-radius:14px;padding:10px 14px;font-size:14px;color:{POSEIDON};margin-bottom:8px}} .etat-donnees span {{color:{GRIS};font-size:12px}}
+div[data-testid="stVerticalBlockBorderWrapper"] {{border-radius:20px;border-color:#EEE3E6;background:#fff;box-shadow:0 4px 16px rgba(18,57,85,.06)}}
+.stp {{display:flex;align-items:center;gap:10px;font-weight:600;color:{POSEIDON}}} .stp b {{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#EADDE0;color:{POSEIDON}}}
+.stp.on b {{background:{FUCHSIA};color:#fff}} .stp.ok b {{background:{NEPTUNE};color:#fff}}
+.pill2 {{display:inline-block;background:{FUCHSIA};color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:99px;margin-left:6px;vertical-align:middle}}
+.fmt {{display:inline-block;font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;color:#fff}}
 /* Mia */
 .mia {{display:flex;gap:16px;background:#fff;border-radius:22px;padding:18px 22px;margin:8px 0 16px;box-shadow:0 6px 22px rgba(158,44,106,.12);border:1px solid #F1DCE7}}
 .mia-av {{position:relative;flex:0 0 72px;height:72px;border-radius:50%;background:#F1DCE7 center/cover no-repeat;border:3px solid #fff;box-shadow:0 3px 10px rgba(158,44,106,.25)}}
@@ -121,8 +128,8 @@ def badge(texte, style="simule"):
 
 
 # ------------------------------------------------------------------ navigation, données, réglages
-PAGES = ["bord", "camp", "mia", "rapport"]
-LIBELLES = {"bord": "① Tableau de bord", "camp": "② Campagnes", "mia": "③ Assistant IA · Mia", "rapport": "④ Rapports"}
+PAGES = ["bord", "camp", "mia", "rapport", "donnees"]
+LIBELLES = {"bord": "① Tableau de bord", "camp": "② Campagnes", "mia": "③ Assistant IA · Mia", "rapport": "④ Rapports", "donnees": "⑤ Données"}
 
 
 def aller(page, fiche=None):
@@ -134,8 +141,40 @@ def aller(page, fiche=None):
 EXEMPLES = Path(__file__).with_name("assets") / "exemples"
 
 
+def ajouter_fichiers():
+    up = st.session_state.get(f"uploader_donnees_{st.session_state.get('up_n', 0)}") or []
+    d = dict(st.session_state.get("fichiers_importes") or {})
+    for f in up:
+        d[f.name] = f.getvalue()
+    st.session_state["fichiers_importes"] = d
+    st.session_state["up_n"] = st.session_state.get("up_n", 0) + 1       # le champ se vide : les fichiers apparaissent dans la liste
+    st.session_state["exemple"] = False
+
+
+def retirer_fichier(nom):
+    d = dict(st.session_state.get("fichiers_importes") or {})
+    d.pop(nom, None)
+    st.session_state["fichiers_importes"] = d
+
+
+def tout_retirer():
+    st.session_state["fichiers_importes"] = {}
+
+
+def ajouter_commentaires():
+    up = st.session_state.get(f"comm_donnees_{st.session_state.get('cm_n', 0)}")
+    if up is not None:
+        st.session_state["commentaires"] = up.getvalue()
+    st.session_state["cm_n"] = st.session_state.get("cm_n", 0) + 1
+
+
+def retirer_commentaires():
+    st.session_state["commentaires"] = None
+
+
 def charger_exemple():
     st.session_state["exemple"] = True
+    st.session_state["fichiers_importes"] = {}
 
 
 def quitter_exemple():
@@ -161,25 +200,11 @@ with st.sidebar:
     page = st.radio("Navigation", PAGES, format_func=LIBELLES.get, key="page", label_visibility="collapsed")
     st.divider()
 
-    st.markdown("##### Mes fichiers")
-    st.caption("Déposez vos exports (réseaux sociaux, publicité, site). Lumen les analyse tout seul. Sans fichier, vous voyez une démonstration.")
-    fichiers_up = st.file_uploader("Déposer mes fichiers CSV ou Excel", type=["csv", "xls", "xlsx"], accept_multiple_files=True)
-    if fichiers_up:
-        st.success(f"{len(fichiers_up)} fichier(s) analysé(s).")
-    elif EXEMPLES.exists():
-        if st.session_state.get("exemple"):
-            st.info("Exemple chargé : Google Ads, TikTok et Instagram (données fictives).")
-            st.button("Revenir à la démonstration", on_click=quitter_exemple, width="stretch")
-        else:
-            st.button("Charger l'exemple : Google Ads, TikTok, Instagram", on_click=charger_exemple, width="stretch")
-    with st.popover("Quel format de fichier ?", width="stretch"):
-        st.markdown("Un export **CSV ou Excel** avec une ligne par publication. Au minimum : le **réseau** (canal), la **date** et les **impressions** (ou la portée).")
-        st.markdown("Les noms français et anglais des exports courants sont reconnus (Meta, TikTok, Google Ads, LinkedIn…). Une information manquante est signalée, jamais devinée.")
-        st.download_button("Télécharger un fichier modèle", MODELE_CSV.encode("utf-8"), file_name="modele_lumen.csv", mime="text/csv", width="stretch")
-    with st.expander("Ajouter des commentaires (facultatif)"):
-        st.caption("Un CSV avec une colonne de texte (commentaire, text ou message) et, idéalement, une date. Mia en analyse le ton.")
-        comm_up = st.file_uploader("Commentaires", type=["csv"], key="comm", label_visibility="collapsed")
-
+    nb_f = len(st.session_state.get("fichiers_importes") or {})
+    etat = (f"<b>{nb_f} fichier(s) chargé(s)</b>" if nb_f else ("<b>Exemple chargé</b>" if st.session_state.get("exemple") else "<b>Démonstration</b>"))
+    sous = ("vos exports" if nb_f else ("Google Ads, TikTok, Instagram" if st.session_state.get("exemple") else "données fictives"))
+    st.markdown(f'<div class="etat-donnees">{etat}<br><span>{sous}</span></div>', unsafe_allow_html=True)
+    st.button("Importer / exporter mes données", on_click=aller, args=("donnees",), width="stretch")
     st.divider()
     st.markdown("##### Mon objectif")
     objectif = st.selectbox("Que voulez-vous améliorer ?", list(OBJECTIFS), index=3, format_func=OBJECTIFS.get,
@@ -208,19 +233,48 @@ def calculer(fichiers_t, demo, reglages_t, comm):
     return analyser(dict(fichiers_t), demo, dict(reglages_t), comm)
 
 
-fichiers = tuple(sorted((f.name, f.getvalue()) for f in (fichiers_up or [])))
+ZONE_ETAPES = ZONE_LISTE = ZONE_D = None
+if page == "donnees":
+    titre_page("Données", "Importez vos exports, puis récupérez vos résultats en un clic.")
+    ZONE_ETAPES = st.container()
+    zg, ZONE_D = st.columns([1, 2], gap="large")
+    with zg:
+        with st.container(border=True):
+            st.markdown('<div class="serif" style="font-size:22px;color:#123955">Importer</div><div style="color:#5B6470;font-size:13px;margin-bottom:8px">CSV ou Excel exportés de vos comptes</div>', unsafe_allow_html=True)
+            st.file_uploader("Glissez vos fichiers ici", type=["csv", "xls", "xlsx"], accept_multiple_files=True,
+                             key=f"uploader_donnees_{st.session_state.get('up_n', 0)}", on_change=ajouter_fichiers)
+            ZONE_LISTE = st.container()
+            with st.popover("Quel format de fichier ?", width="stretch"):
+                st.markdown("Un export **CSV ou Excel** avec une ligne par publication. Au minimum : le **réseau** (canal), la **date** et les **impressions** (ou la portée). Si le fichier ne contient pas le réseau, Lumen le déduit du nom du fichier (ex. `tiktok_jeunes.csv`).")
+                st.markdown("Les noms français et anglais des exports courants sont reconnus (Meta, TikTok, Google Ads, LinkedIn…). Une information manquante est signalée, jamais devinée.")
+                st.download_button("Télécharger un fichier modèle", MODELE_CSV.encode("utf-8"), file_name="modele_lumen.csv", mime="text/csv", width="stretch")
+            if EXEMPLES.exists():
+                if st.session_state.get("exemple"):
+                    st.button("Revenir à la démonstration", on_click=quitter_exemple, width="stretch")
+                else:
+                    st.button("Charger l'exemple : Google Ads, TikTok, Instagram", on_click=charger_exemple, width="stretch")
+            with st.expander("Ajouter des commentaires (facultatif)"):
+                st.caption("Un CSV avec une colonne de texte (commentaire, text ou message) et, idéalement, une date. Mia en analyse le ton.")
+                if st.session_state.get("commentaires"):
+                    st.success("Commentaires chargés.")
+                    st.button("Retirer les commentaires", on_click=retirer_commentaires, key="ret_comm", width="stretch")
+                else:
+                    st.file_uploader("Commentaires", type=["csv"], key=f"comm_donnees_{st.session_state.get('cm_n', 0)}",
+                                     on_change=ajouter_commentaires, label_visibility="collapsed")
+
+fichiers = tuple(sorted((st.session_state.get("fichiers_importes") or {}).items()))
 EXEMPLE_ACTIF = (not fichiers) and bool(st.session_state.get("exemple")) and EXEMPLES.exists()
 if EXEMPLE_ACTIF:
     fichiers = tuple(sorted((f.name, f.read_bytes()) for f in EXEMPLES.glob("*.csv")))
 mode = "import" if fichiers else "demo"
-comm_bytes = comm_up.getvalue() if comm_up is not None else None
+comm_bytes = st.session_state.get("commentaires")
 
 try:
     with st.spinner("L'IA analyse les campagnes…"):
         ns, journal = calculer(fichiers, mode == "demo", tuple(sorted(REGLAGES.items())), comm_bytes)
 except Exception as e:
     st.error(f"L'analyse n'a pas pu aboutir : {type(e).__name__} : {e}")
-    st.caption("Retirez vos fichiers dans le menu de gauche pour revenir à la démo.")
+    st.caption("Retirez vos fichiers dans l'onglet ⑤ Données pour revenir à la démo.")
     with st.expander("Détails"):
         st.code(getattr(e, "journal", "") or str(e))
     st.stop()
@@ -798,7 +852,7 @@ def reponse_regles(q, defaut=True):
     if has("prévi", "prevo", "futur", "prochain", "semaine", "objectif", "avenir"):
         return _prevision_texte()
     if has("commentaire", "public", "avis", "satisf", "réputation", "reputation", "négatif", "negatif"):
-        return ns["ALERTE_TXT"] if ns["SENT"] is not None else "Je n'ai reçu aucun commentaire à analyser. Importez un CSV de commentaires (menu de gauche) et je vous dirai comment réagit votre public."
+        return ns["ALERTE_TXT"] if ns["SENT"] is not None else "Je n'ai reçu aucun commentaire à analyser. Importez un CSV de commentaires (onglet ⑤ Données) et je vous dirai comment réagit votre public."
     if has("format", "contenu", "idée", "idee", "texte", "rédig", "post"):
         return f"Le format qui fonctionne le mieux chez vous est <b>{fmt_i}</b>. Dans « Assistant IA > Améliorer contenus et canaux », je vous propose aussi des idées de publications."
     if has("arrêter", "arreter", "stopper", "supprimer", "couper", "abandonner", "retirer"):
@@ -910,11 +964,12 @@ chat_flottant()
 
 # ================================================================== A. TABLEAU DE BORD
 if page == "bord":
-    st.markdown(f'<div class="eyebrow">Lumen</div><h2 class="pt">Bonjour, voici l\'essentiel</h2><p class="ps">{periode()} · {len(CAMP)} campagnes · {len(DF)} publications · {"un indicateur adapté à chaque campagne" if HETERO else "indicateur suivi : " + NOM_M} (objectif « {objectif} »)</p>', unsafe_allow_html=True)
+    st.markdown(f'<div class="eyebrow">Lumen · Tableau de bord</div><h2 class="pt">Bonjour, voici l\'essentiel</h2><p class="ps">{periode()} · {len(CAMP)} campagnes · {len(DF)} publications · {"un indicateur adapté à chaque campagne" if HETERO else "indicateur suivi : " + NOM_M} (objectif « {objectif} »)</p>', unsafe_allow_html=True)
     if EXEMPLE_ACTIF:
-        carte("<b>Exemple chargé</b> : ces trois exports (Google Ads, TikTok, Instagram) sont fictifs. Cliquez sur « Revenir à la démonstration » dans le menu à gauche pour retrouver le festival.", "vigil")
+        carte("<b>Exemple chargé</b> : ces trois exports (Google Ads, TikTok, Instagram) sont fictifs. Cliquez sur « Revenir à la démonstration » dans l'onglet ⑤ Données pour retrouver le festival.", "vigil")
     if mode == "demo":
-        carte("<b>Mode démonstration</b> : ces données sont fictives (lancement d'un festival). Importez vos fichiers dans le menu à gauche pour analyser vos propres campagnes.", "vigil")
+        carte("<b>Mode démonstration</b> : ces données sont fictives (lancement d'un festival). Importez vos fichiers dans l'onglet ⑤ Données pour analyser vos propres campagnes.", "vigil")
+        st.button("Importer mes fichiers", on_click=aller, args=("donnees",), key="imp_accueil")
 
     n_f = int(CAMP["Statut"].str.startswith("🟢").sum())
     n_b = int(CAMP["Statut"].str.startswith("🔴").sum())
@@ -1328,6 +1383,7 @@ if page == "rapport":
 
     st.divider()
     st.markdown("#### Partager le rapport")
+    st.button("Voir tous les exports (Excel, CSV, synthèse de Mia)", on_click=aller, args=("donnees",), key="vers_donnees")
     c1, c2 = st.columns(2)
     with c1:
         if st.button("Préparer le rapport complet (HTML)"):
@@ -1352,3 +1408,121 @@ if page == "rapport":
     with st.expander(f"Voir les données centralisées ({len(DF)} lignes)"):
         st.caption("Les valeurs manquantes sont laissées vides, jamais inventées.")
         st.dataframe(DF)
+
+
+# ================================================================== E. DONNÉES (import et exports)
+def ficon(kind, t=40):
+    col = {"html": POSEIDON, "csv": "#2E8B57", "xlsx": "#1D6F42", "txt": FUCHSIA, "pdf": "#C0392B"}[kind]
+    lab = {"html": "&lt;/&gt;", "csv": "CSV", "xlsx": "XLS", "txt": "TXT", "pdf": "PDF"}[kind]
+    return (f'<svg viewBox="0 0 40 48" width="{t}" height="{int(t * 1.2)}"><path d="M4 2h22l10 10v32a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2z" fill="#fff" stroke="{col}" stroke-width="2.2"/>'
+            f'<path d="M26 2v10h10" fill="none" stroke="{col}" stroke-width="2.2"/><rect x="2" y="26" width="34" height="14" rx="3" fill="{col}"/>'
+            f'<text x="19" y="37" font-size="10.5" font-weight="700" fill="#fff" text-anchor="middle" font-family="Arial">{lab}</text></svg>')
+
+
+def brut(texte):
+    return re.sub(r"<[^>]+>", "", str(texte).replace("<br>", "\n")).replace("&nbsp;", " ")
+
+
+def synthese_texte():
+    lignes = [f"LUMEN · Synthèse de Mia · {time.strftime('%d/%m/%Y')}", f"{periode().capitalize()} · {len(CAMP)} campagnes · {len(DF)} publications",
+              ("Données fictives (démonstration)" if mode == "demo" else "Données importées"), "", "LE BILAN", brut(message_mia()), "", "VOS PRIORITÉS"]
+    lignes += [f"{i}. {t} : {brut(x)}" for i, (t, _, x) in enumerate(priorites(), 1)]
+    lignes += ["", "LES RECOMMANDATIONS DE MIA"] + [f"- {brut(r)}" for r in ns["recommandations"]()]
+    lignes += ["", "LIMITES DE L'ANALYSE"] + [f"- {brut(l)}" for l in ns["limites"]()]
+    lignes += ["", "Mia propose, vous décidez."]
+    return "\n".join(lignes)
+
+
+def xlsx_bytes():
+    bio = io.BytesIO()
+    conseils = [("Bilan de Mia", brut(message_mia()))] + [(f"Priorité {i} · {t}", brut(x)) for i, (t, _, x) in enumerate(priorites(), 1)]
+    conseils += [(f"Recommandation {i}", brut(r)) for i, r in enumerate(ns["recommandations"](), 1)] + [("Limite", brut(l)) for l in ns["limites"]()]
+    with pd.ExcelWriter(bio, engine="openpyxl") as w:
+        tableau_affichage(CAMP).to_excel(w, sheet_name="Campagnes")
+        DF.to_excel(w, sheet_name="Données", index=False)
+        pd.DataFrame(conseils, columns=["Rubrique", "Texte"]).to_excel(w, sheet_name="Conseils de Mia", index=False)
+        for ws in w.book.worksheets:
+            for colonne in ws.columns:
+                largeur = max((len(str(c.value)) for c in colonne[:60] if c.value is not None), default=8)
+                ws.column_dimensions[colonne[0].column_letter].width = min(70, largeur + 2)
+    return bio.getvalue()
+
+
+def tuile_export(col, kind, titre, fmt, couleur, desc, donnees, fichier, mime, cle, nouveau=False):
+    with col:
+        with st.container(border=True):
+            st.markdown(f'<div style="display:flex;gap:12px;align-items:center">{ficon(kind, 36)}<div><div style="font-weight:700;color:{POSEIDON}">{titre}</div>'
+                        f'<span class="fmt" style="background:{couleur}">{fmt}</span>{"<span class=pill2>NOUVEAU</span>" if nouveau else ""}</div></div>'
+                        f'<div style="font-size:13px;color:{GRIS};margin:8px 0 10px;min-height:44px">{desc}</div>', unsafe_allow_html=True)
+            st.download_button("Télécharger", donnees, file_name=fichier, mime=mime, width="stretch", key=cle)
+
+
+if page == "donnees":
+    nb_fic = len(st.session_state.get("fichiers_importes") or {})
+    a_donnees = bool(nb_fic or EXEMPLE_ACTIF)
+    with ZONE_ETAPES:
+        e1 = "ok" if a_donnees else "on"
+        st.markdown(f'<div class="carte" style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px;margin-bottom:14px">'
+                    f'<div class="stp {e1}"><b>{"✓" if a_donnees else "1"}</b>Importer</div><div style="flex:1;height:2px;background:{NEPTUNE if a_donnees else "#EADDE0"};margin:0 14px"></div>'
+                    f'<div class="stp ok"><b>✓</b>Vérifier</div><div style="flex:1;height:2px;background:{FUCHSIA};margin:0 14px"></div>'
+                    f'<div class="stp on"><b>3</b>Exporter</div></div>', unsafe_allow_html=True)
+
+    # ---- colonne de gauche : ce qui est chargé et ce que Lumen a compris
+    with ZONE_LISTE:
+        if nb_fic and "source_fichier" in DF:
+            st.markdown("**Vos fichiers**")
+            lignes_f = DF.groupby("source_fichier").agg(n=("canal", "size"), canal=("canal", "first")).reset_index()
+            for _, r in lignes_f.iterrows():
+                c1, c2 = st.columns([5, 2])
+                c1.markdown(f'{pastille(r["canal"], 22)} &nbsp;<span style="font-size:13px">{r["source_fichier"]}</span><br><span style="font-size:12px;color:{GRIS}">{int(r["n"])} lignes</span>', unsafe_allow_html=True)
+                nom_orig = next((n for n in (st.session_state.get("fichiers_importes") or {}) if Path(n).stem == Path(str(r["source_fichier"])).stem), None)
+                if nom_orig:
+                    c2.button("Retirer", key=f"ret_{nom_orig}", on_click=retirer_fichier, args=(nom_orig,))
+            st.button("Tout retirer", on_click=tout_retirer, key="tout_ret")
+        elif EXEMPLE_ACTIF:
+            st.info("Exemple chargé : Google Ads, TikTok et Instagram (données fictives).")
+        else:
+            st.caption("Aucun fichier importé : Lumen affiche la démonstration (données fictives).")
+        st.markdown("**Ce que Lumen a compris**")
+        compris = [("ok", f"{DF['canal'].nunique()} réseau(x) reconnu(s) · {len(CAMP)} campagnes"), ("ok", f"{len(DF)} lignes analysées")]
+        manquantes = [m for r in ns["RAPPORT_IMPORT"] for m in re.findall(r"dans (\w+) \(laissées", str(r))]
+        autres = [r for r in ns["RAPPORT_IMPORT"] if "manquante" not in str(r)]
+        if manquantes:
+            compris.append(("att", f"Certaines colonnes ne sont pas renseignées partout ({', '.join(manquantes)}) : les valeurs manquantes restent vides, jamais inventées"))
+        compris += [("att", brut(r)) for r in autres[:3]]
+        if not HEURE_OK:
+            compris.append(("att", "Heure absente : seuls les jours sont classés"))
+        if ns["SENT"] is None:
+            compris.append(("att", "Aucun commentaire à analyser"))
+        st.markdown("".join(f'<div style="font-size:13px;margin:3px 0"><span style="color:{NEPTUNE if t == "ok" else ACACIA};font-weight:700">{"✓" if t == "ok" else "!"}</span> {x}</div>' for t, x in compris), unsafe_allow_html=True)
+
+    # ---- colonne de droite : les exports, mis en valeur
+    with ZONE_D:
+        st.markdown('<div class="serif" style="font-size:22px;color:#123955;margin-bottom:4px">Exporter</div><div style="color:#5B6470;font-size:13px;margin-bottom:10px">5 formats prêts à partager avec votre équipe ou vos clients</div>', unsafe_allow_html=True)
+        with st.container(border=True):
+            h1, h2 = st.columns([1, 2.2])
+            h1.markdown(f'<div style="background:linear-gradient(160deg,{POSEIDON},#2C4F6B);border-radius:16px;padding:16px"><div style="background:#fff;border-radius:8px;padding:8px;font-size:9px;color:{POSEIDON}">'
+                        f'<b class="serif" style="font-size:12px">Rapport de campagne</b><div style="height:4px;background:#EADDE0;border-radius:3px;margin:6px 0"></div>'
+                        f'<div style="display:flex;gap:4px"><div style="flex:1;height:22px;background:#F1DCE7;border-radius:4px"></div><div style="flex:1;height:22px;background:#DCEBE3;border-radius:4px"></div></div>'
+                        f'<div style="height:34px;margin-top:6px;border-bottom:3px solid {NEPTUNE};border-radius:0 0 40% 0"></div></div></div>', unsafe_allow_html=True)
+            with h2:
+                st.markdown(f'<span class="pill2" style="margin:0">LE PLUS COMPLET</span><div class="serif" style="font-size:24px;color:{POSEIDON};margin:4px 0">Rapport complet</div>'
+                            f'<div style="font-size:14px;color:{GRIS};margin-bottom:10px">Graphiques, alertes et recommandations de Mia dans un seul document, prêt pour un rendez-vous client.</div>', unsafe_allow_html=True)
+                b1, b2 = st.columns(2)
+                b1.download_button("Télécharger (HTML)", ns["HTML_DASH"].encode("utf-8"), file_name="rapport_lumen.html", mime="text/html", type="primary", width="stretch")
+                with b2.popover("Enregistrer en PDF", width="stretch"):
+                    st.markdown("1. Téléchargez le rapport (HTML) et ouvrez-le dans votre navigateur.\n2. Faites **Ctrl + P** (ou Imprimer).\n3. Choisissez **Enregistrer au format PDF**.")
+        txt_synth = synthese_texte()
+        t1 = st.columns(2)
+        tuile_export(t1[0], "csv", "Comparaison des campagnes", "CSV", "#2E8B57", "Le tableau de vos campagnes, qui s'ouvre directement dans Excel.",
+                     tableau_affichage(CAMP).to_csv(sep=";").encode("utf-8-sig"), "comparaison_campagnes.csv", "text/csv", "dl_camp")
+        tuile_export(t1[1], "csv", "Données centralisées", "CSV", "#2E8B57", f"Toutes vos publications nettoyées ({len(DF)} lignes), valeurs manquantes laissées vides.",
+                     DF.to_csv(index=False, sep=";").encode("utf-8-sig"), "donnees_centralisees.csv", "text/csv", "dl_don")
+        t2 = st.columns(2)
+        tuile_export(t2[0], "xlsx", "Classeur Excel", "XLSX", "#1D6F42", "3 feuilles : campagnes, données et conseils de Mia.",
+                     xlsx_bytes(), "lumen_export.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "dl_xlsx", True)
+        tuile_export(t2[1], "txt", "Synthèse de Mia", "TXT", FUCHSIA, "Le bilan, les priorités et les conseils, à copier dans un e-mail.",
+                     txt_synth.encode("utf-8"), "synthese_mia.txt", "text/plain", "dl_txt", True)
+        with t2[1].expander("Voir et copier le texte"):
+            st.code(txt_synth, language=None)
+
