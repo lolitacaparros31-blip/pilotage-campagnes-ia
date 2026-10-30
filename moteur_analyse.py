@@ -74,17 +74,20 @@ def make_demo(n=90, seed=7):
         "age_releve_h": rng.choice([24,48,48,48,72], n),
     })
     d["jour"] = d["date"].dt.day_name().map(JOURS)
-    base = 1500 + d["budget"]*18 + np.where(d["canal"].isin(["tiktok","instagram"]), 4000, 0)
-    d["impressions"] = (base * rng.uniform(0.6, 1.5, n)).astype(int)
-    d["portee"] = (d["impressions"] * rng.uniform(0.55, 0.85, n)).astype(int)
-    ctr = rng.uniform(0.004, 0.03, n) * np.where(d["format"].isin(["vidéo courte","carrousel"]), 1.3, 1.0)
+    # Démo festival : des écarts réguliers entre canaux (certains performent, d'autres non) et peu de hasard d'une semaine à l'autre
+    d["budget"] = (d["budget"] * 0.35 + 140).round()
+    taux_conv = d["canal"].map({"facebook": .060, "linkedin": .054, "youtube": .052, "newsletter": .048, "instagram": .036, "tiktok": .026})
+    base = 3200 + d["budget"]*10 + np.where(d["canal"].isin(["tiktok","instagram"]), 2500, 0)
+    d["impressions"] = (base * rng.uniform(0.92, 1.08, n)).astype(int)
+    d["portee"] = (d["impressions"] * rng.uniform(0.68, 0.74, n)).astype(int)
+    ctr = rng.uniform(0.018, 0.022, n) * np.where(d["format"].isin(["vidéo courte","carrousel"]), 1.15, 1.0)
     d["clics"] = (d["impressions"] * ctr).astype(int)
-    d["likes"] = (d["portee"] * rng.uniform(0.01, 0.06, n)).astype(int)
-    d["commentaires"] = (d["likes"] * rng.uniform(0.03, 0.15, n)).astype(int)
-    d["partages"] = (d["likes"] * rng.uniform(0.02, 0.2, n)).astype(int)
-    d["vues"] = (d["impressions"] * rng.uniform(0.2, 0.6, n)).astype(int)
-    d["conversions"] = (d["clics"] * rng.uniform(0.01, 0.08, n)).astype(int)
-    d["revenu"] = d["conversions"] * rng.uniform(15, 60, n)
+    d["likes"] = (d["portee"] * rng.uniform(0.034, 0.040, n)).astype(int)
+    d["commentaires"] = (d["likes"] * rng.uniform(0.08, 0.10, n)).astype(int)
+    d["partages"] = (d["likes"] * rng.uniform(0.10, 0.13, n)).astype(int)
+    d["vues"] = (d["impressions"] * rng.uniform(0.38, 0.42, n)).astype(int)
+    d["conversions"] = (d["clics"] * taux_conv * rng.uniform(0.93, 1.07, n)).round().astype(int)
+    d["revenu"] = d["conversions"] * rng.uniform(34, 38, n)
     return d
 
 if DEMO_MODE:
