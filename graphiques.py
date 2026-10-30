@@ -80,11 +80,11 @@ def creneaux(df, metrique, nom_m, est_taux, ordre_jours):
     d["heure"] = d["heure"].astype(int).astype(str) + " h"
     heures = sorted(d["heure"].unique(), key=lambda h: int(h.split()[0]))
     ch = alt.Chart(d).mark_rect(cornerRadius=3).encode(
-        x=alt.X("heure:O", sort=heures, title=None), y=alt.Y("jour:O", sort=[j for j in ordre_jours if j in set(d["jour"])], title=None),
+        x=alt.X("heure:O", sort=heures, title=None), y=alt.Y("jour:O", sort=[j for j in ordre_jours if j in set(d["jour"])], title=None, axis=alt.Axis(labelOverlap=False)),
         color=alt.Color("median:Q", title=nom_m, scale=alt.Scale(range=[EGRET, "#D29380", FUCHSIA]), legend=alt.Legend(format=_fmt(est_taux))),
         tooltip=[alt.Tooltip("jour:N", title="Jour"), alt.Tooltip("heure:N", title="Heure"),
                  alt.Tooltip("median:Q", title=f"{nom_m} médian", format=_fmt(est_taux)), alt.Tooltip("count:Q", title="Publications")])
-    return habiller(ch, "Meilleurs créneaux : jour × heure (plus foncé = mieux)")
+    return habiller(ch, "Meilleurs créneaux : jour × heure (plus foncé = mieux)", hauteur=320)
 
 
 def cout_performance(df, metrique, nom_m, est_taux):

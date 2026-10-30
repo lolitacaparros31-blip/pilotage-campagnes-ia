@@ -31,6 +31,8 @@ st.set_page_config(page_title="Lumen · Analyse de campagnes par IA", page_icon=
 SERIF = "Georgia, 'Times New Roman', serif"
 st.markdown(f"""
 <style>
+div.block-container {{max-width:100% !important;padding:2.2rem 3rem 3rem !important}}
+section[data-testid="stSidebar"] {{min-width:300px}}
 h1, h2, h3, .pt, .lumen {{font-family:{SERIF} !important; color:{POSEIDON}}}
 .pt {{font-size:34px;margin:2px 0 0;font-weight:600}} .ps {{color:{GRIS};margin:0 0 14px}}
 .eyebrow {{letter-spacing:.14em;text-transform:uppercase;font-size:11px;color:{FUCHSIA};font-weight:700;margin-top:6px}}
@@ -237,10 +239,9 @@ def serie_mensuelle_campagnes(d, col, camps, taux):
 
 def afficher_cartes():
     cartes = ns["CARTES"]
-    for i in range(0, len(cartes), 4):
-        cols = st.columns(4)
-        for c, (nom, valeur, sous) in zip(cols, cartes[i:i + 4]):
-            c.metric(nom, valeur, help=sous)
+    cols = st.columns(len(cartes))
+    for c, (nom, valeur, sous) in zip(cols, cartes):
+        c.metric(nom, valeur, help=sous)
 
 
 def montrer_graphe(nom):
@@ -556,14 +557,18 @@ if page == "bord":
 
     st.markdown("### Chiffres clés")
     afficher_cartes()
-    st.markdown("### Tendance")
-    if not montrer_graphe("tendance"):
-        st.info("Il faut des dates pour afficher la tendance.")
-    c1, c2 = st.columns(2)
+    st.markdown("### Tendances")
+    c1, c2 = st.columns([2, 1])
+    with c1:
+        if not montrer_graphe("tendance"):
+            st.info("Il faut des dates pour afficher la tendance.")
+    with c2:
+        montrer_graphe("sentiment") or montrer_graphe("creneaux")
+    c1, c2 = st.columns([1, 1])
     with c1:
         montrer_graphe("canal")
     with c2:
-        montrer_graphe("sentiment") or montrer_graphe("creneaux")
+        montrer_graphe("creneaux") or montrer_graphe("benchmark")
 
 # ================================================================== B. CAMPAGNES
 if page == "camp":
