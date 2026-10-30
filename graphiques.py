@@ -40,7 +40,7 @@ def tendance(df, metrique, nom_m, est_taux):
     ligne = base.mark_line(color=POSEIDON, strokeWidth=2.5).encode(
         y=f"tendance:Q", tooltip=[alt.Tooltip("date:T", format="%d/%m/%Y", title="Date"),
                                   alt.Tooltip("tendance:Q", title="Tendance (médiane glissante)", format=_fmt(est_taux))])
-    return habiller(pts + ligne, f"{nom_m} dans le temps")
+    return habiller(pts + ligne, f"{nom_m} dans le temps", hauteur=400)
 
 
 def par_groupe(t, col, nom_m, est_taux, titre):
@@ -120,14 +120,14 @@ def campagnes(t, col, titre, est_taux):
     d["fragile"] = np.where(d["Statut"].str.contains("fragile"), "oui (à confirmer)", "non")
     fmt = ".1%" if est_taux else (",.2f" if d["valeur"].abs().max() < 100 else ",.0f")
     barres = alt.Chart(d).mark_bar(cornerRadiusEnd=4).encode(
-        y=alt.Y("campagne:N", sort="-x", title=None),
+        y=alt.Y("campagne:N", sort="-x", title=None, axis=alt.Axis(labelLimit=240)),
         x=alt.X("valeur:Q", title=None, axis=alt.Axis(format=fmt)),
         color=alt.Color("statut:N", scale=STATUTS, title="Statut"),
         tooltip=[alt.Tooltip("campagne:N", title="Campagne"), alt.Tooltip("valeur:Q", title=titre.split(" par ")[0], format=fmt),
                  alt.Tooltip("Publications:Q"), alt.Tooltip("statut:N", title="Statut"), alt.Tooltip("fragile:N", title="Échantillon fragile")])
     med = alt.Chart(pd.DataFrame({"m": [d["valeur"].median()]})).mark_rule(color=GRIS, strokeDash=[4, 4]).encode(
         x="m:Q", tooltip=[alt.Tooltip("m:Q", title="Médiane des campagnes", format=fmt)])
-    return habiller(barres + med, titre, hauteur=max(160, 38 * len(d)))
+    return habiller(barres + med, titre, hauteur=max(260, 48 * len(d) + 130))
 
 
 def evolution_campagnes(mensuel, nom, est_taux):

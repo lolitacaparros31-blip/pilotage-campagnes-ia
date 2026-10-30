@@ -552,23 +552,28 @@ CONSIGNE = ("Tu es Mia, l'assistante IA de Lumen, une plateforme d'analyse de ca
 
 
 def demander_gemini(messages):
-    """messages = [(rôle 'user'|'model', texte)]. Retourne (texte, erreur)."""
+    """messages = [(rôle 'user'|'model', texte)]. Retourne (texte, erreur). Essaie plusieurs noms de modèle."""
     import requests
     corps = {
         "system_instruction": {"parts": [{"text": CONSIGNE + "\n\nDONNÉES :\n" + contexte_ia()}]},
         "contents": [{"role": r, "parts": [{"text": t}]} for r, t in messages],
         "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1200},
     }
-    try:
-        rep = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{MODELE_GEMINI}:generateContent",
-                            headers={"x-goog-api-key": CLE_GEMINI, "Content-Type": "application/json"}, json=corps, timeout=60)
-        data = rep.json()
-        if rep.status_code != 200:
-            return None, data.get("error", {}).get("message", f"erreur {rep.status_code}")
-        parts = data["candidates"][0]["content"]["parts"]
-        return "".join(p.get("text", "") for p in parts).strip(), None
-    except Exception as e:
-        return None, f"{type(e).__name__} : {e}"
+    erreur = "aucun modèle disponible"
+    for modele in dict.fromkeys([MODELE_GEMINI, "gemini-flash-latest", "gemini-2.5-flash"]):
+        try:
+            rep = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{modele}:generateContent",
+                                headers={"x-goog-api-key": CLE_GEMINI, "Content-Type": "application/json"}, json=corps, timeout=60)
+            data = rep.json()
+            if rep.status_code == 200:
+                parts = data["candidates"][0]["content"]["parts"]
+                return "".join(p.get("text", "") for p in parts).strip(), None
+            erreur = f"{modele} : " + data.get("error", {}).get("message", f"erreur {rep.status_code}")
+            if rep.status_code in (400, 401, 403, 429):   # clé invalide, quota : inutile d'essayer un autre modèle
+                break
+        except Exception as e:
+            erreur = f"{type(e).__name__} : {e}"
+    return None, erreur
 
 
 def quota_ok():
@@ -622,7 +627,7 @@ def reponse_regles(q):
         if nom.lower() in t or any(c in t for c in canaux_de(nom)):
             r = CAMP.loc[nom]
             return (f"<b>{nom}</b> : {NOM_M.lower()} médian {fm(r['_perf'])} ({ec(r['Écart à la médiane'])} vs médiane, {int(r['Publications'])} publications). Statut : {r['Statut']}. {reco_campagne(nom)}")
-    return "Je ne suis pas sûre de bien comprendre. Essayez par exemple : « Quelle campagne pose problème ? », « Quand publier ? » ou le nom d'un réseau (TikTok, Instagram…). Avec une clé Gemini, je pourrais répondre à des questions plus libres."
+    return "Je ne suis pas sûre de bien comprendre. Essayez par exemple : « Quelle campagne pose problème ? », « Quand publier ? » ou le nom d'un réseau (TikTok, Instagram…)." + ("" if CLE_GEMINI else " Avec une clé Gemini, je pourrais répondre à des questions plus libres.")
 
 
 def envoyer(question):
@@ -634,7 +639,8 @@ def envoyer(question):
     rep = None
     if CLE_GEMINI and st.session_state.get("nb_questions", 0) < LIMITE_QUESTIONS:
         st.session_state["nb_questions"] = st.session_state.get("nb_questions", 0) + 1
-        rep, _ = demander_gemini([(r, t) for r, t in h[-7:]])
+        rep, err = demander_gemini([(r, t) for r, t in h[-7:]])
+        st.session_state["gemini_err"] = err
     h.append(("model", rep or reponse_regles(question)))
 
 
@@ -664,6 +670,8 @@ def chat_flottant():
                 f1, f2 = st.columns([3, 2])
                 f1.form_submit_button("Envoyer", on_click=lambda: envoyer(st.session_state.get("msg_mia")), type="primary", width="stretch")
                 f2.form_submit_button("Effacer", on_click=vider_chat, width="stretch")
+            if CLE_GEMINI and st.session_state.get("gemini_err"):
+                st.warning("Gemini n'a pas répondu, Mia a répondu avec ses règles. Raison : " + str(st.session_state["gemini_err"])[:160])
             st.caption("Mia propose, vous décidez." + (" Propulsé par Gemini." if CLE_GEMINI else " Réponses calculées à partir de vos chiffres."))
 
 
@@ -720,6 +728,14 @@ if page == "bord":
                 st.markdown(carte_campagne_html(nom), unsafe_allow_html=True)
                 st.button("Ouvrir la fiche", key=f"fiche_{nom}", on_click=aller, args=("camp", nom))
 
+    st.markdown("### Comparer et suivre")
+    g1, g2 = st.columns(2)
+    with g1:
+        st.altair_chart(gr.campagnes(CAMP, "_perf", f"{NOM_M} médian par campagne (pointillé = médiane)", ns["EST_TAUX"]), width="stretch")
+    with g2:
+        if not montrer_graphe("tendance"):
+            st.info("Il faut des dates pour afficher la tendance.")
+
     st.markdown("### Vos priorités et les conseils de Mia")
     cols = st.columns(4)
     for i, (c, (titre, cle, txt)) in enumerate(zip(cols[:3], priorites()), 1):
@@ -731,18 +747,14 @@ if page == "bord":
 
     st.markdown("### Chiffres clés")
     afficher_cartes()
-    st.markdown("### Tendances")
-    c1, c2 = st.columns([2, 1])
-    with c1:
-        if not montrer_graphe("tendance"):
-            st.info("Il faut des dates pour afficher la tendance.")
-    with c2:
-        montrer_graphe("sentiment") or montrer_graphe("creneaux")
-    c1, c2 = st.columns([1, 1])
+    st.markdown("### Pour aller plus loin")
+    c1, c2, c3 = st.columns(3)
     with c1:
         montrer_graphe("canal")
     with c2:
-        montrer_graphe("creneaux") or montrer_graphe("benchmark")
+        montrer_graphe("sentiment") or montrer_graphe("benchmark")
+    with c3:
+        montrer_graphe("creneaux") or montrer_graphe("cout")
 
 # ================================================================== B. CAMPAGNES
 if page == "camp":
