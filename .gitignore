@@ -12,3 +12,6 @@ __pycache__/
 # Exemple : fausses données fournies par l'utilisatrice (aucune donnée réelle)
 !assets/exemples/
 !assets/exemples/*.csv
+
+# Document à rendre (contient le nom de l'élève)
+livrable/
