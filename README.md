@@ -1,4 +1,4 @@
-# Plateforme d'analyse de campagnes générée par IA (Streamlit)
+# Lumen : plateforme d'analyse de campagnes générée par IA (Streamlit)
 
 Quatre espaces : **Tableau de bord**, **Campagnes**, **Assistant IA**, **Rapports**. La plateforme s'ouvre sur une démo (campagnes fictives d'un festival) ; on peut importer ses propres exports CSV/Excel dans le menu de gauche.
 **100 % gratuit. L'IA recommande, l'humain décide. Aucune donnée n'est inventée.**
@@ -21,7 +21,8 @@ Ne mettez JAMAIS vos fichiers de données dans le dépôt (le `.gitignore` les e
 ## Les fichiers
 | Fichier | Rôle |
 |---|---|
-| `app.py` | L'interface : les 4 espaces, la comparaison des campagnes, l'assistant IA |
+| `app.py` | L'interface Lumen : menu en 4 étapes, cartes de campagnes, assistante Mia |
+| `graphiques.py` | Graphiques interactifs (survol, zoom) |
 | `.streamlit/config.toml` | Thème aux couleurs Pantone A/W 26-27 |
 | `NOTE_EXPLICATIVE.md` | Note explicative de l'épreuve |
 | `moteur_analyse.py` | Le calcul (identique au notebook Colab) |

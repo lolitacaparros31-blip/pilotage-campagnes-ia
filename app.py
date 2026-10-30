@@ -4,6 +4,7 @@ Lancer en local :  streamlit run app.py
 Quatre espaces : Tableau de bord, Campagnes, Assistant IA, Rapports.
 Principe : l'IA recommande, l'humain décide. Aucune donnée n'est inventée.
 """
+import re
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -26,26 +27,54 @@ PAL = [ALL_ABOARD, FUCHSIA, NEPTUNE, "#755139", "#D29380", POSEIDON, "#B98391", 
 
 NOM_PLATEFORME = "Plateforme d'analyse de campagnes générée par IA"
 
-st.set_page_config(page_title="Analyse de campagnes IA", page_icon="📊", layout="wide")
+st.set_page_config(page_title="Lumen · Analyse de campagnes par IA", page_icon="💡", layout="wide")
+SERIF = "Georgia, 'Times New Roman', serif"
 st.markdown(f"""
 <style>
-.hero {{background:linear-gradient(120deg,{POSEIDON} 0%,{POSEIDON} 45%,{FUCHSIA} 100%);color:#fff;padding:22px 26px;border-radius:18px;margin-bottom:12px}}
-.hero h1 {{margin:0 0 4px;font-size:27px;color:#fff}} .hero p {{margin:0;opacity:.92}}
-div[data-testid="stMetric"] {{background:#fff;border-radius:14px;padding:12px 14px;border-top:4px solid {POSEIDON};box-shadow:0 3px 12px rgba(18,57,85,.08)}}
-div[data-testid="stMetricValue"] {{color:{POSEIDON}}}
-.stTabs button[role="tab"] p {{font-size:17px;font-weight:600}}
+h1, h2, h3, .pt, .lumen {{font-family:{SERIF} !important; color:{POSEIDON}}}
+.pt {{font-size:34px;margin:2px 0 0;font-weight:600}} .ps {{color:{GRIS};margin:0 0 14px}}
+.eyebrow {{letter-spacing:.14em;text-transform:uppercase;font-size:11px;color:{FUCHSIA};font-weight:700;margin-top:6px}}
+div[data-testid="stMetric"] {{background:#fff;border-radius:18px;padding:12px 16px;box-shadow:0 4px 16px rgba(18,57,85,.06)}}
+div[data-testid="stMetricValue"] {{color:{POSEIDON};font-family:{SERIF}}}
+.stTabs button[role="tab"] p {{font-size:16px;font-weight:600}}
 .badge {{display:inline-block;padding:3px 12px;border-radius:99px;font-size:12px;font-weight:bold}}
-.demo, .simule {{background:#EFE6A8;color:#4A4320}}
-.ia {{background:#F1DCE7;color:{FUCHSIA}}}
-.carte {{background:#fff;border-radius:14px;padding:14px 16px;margin:6px 0;box-shadow:0 2px 10px rgba(18,57,85,.07)}}
+.demo, .simule {{background:#EFE6A8;color:#4A4320}} .ia {{background:#F1DCE7;color:{FUCHSIA}}}
+.carte {{background:#fff;border-radius:16px;padding:14px 18px;margin:6px 0;box-shadow:0 3px 12px rgba(18,57,85,.06)}}
 .carte.fort {{border-left:6px solid {NEPTUNE}}} .carte.faible {{border-left:6px solid {SPICE}}}
 .carte.ia {{border-left:6px solid {FUCHSIA};color:{POSEIDON}}} .carte.info {{border-left:6px solid {ALL_ABOARD}}}
-.carte.vigil {{border-left:6px solid {ACACIA}}}
+.carte.vigil {{border-left:6px solid {ACACIA}}} .carte.moyen {{border-left:6px solid {ALL_ABOARD}}}
 .carte b {{color:{POSEIDON}}}
+/* Lumen : marque et navigation */
+.lumen {{font-size:30px;font-weight:600;margin:0;line-height:1}}
+.slogan {{color:{FUCHSIA};font-style:italic;font-size:13px;margin:4px 0 2px}} .officiel {{color:{GRIS};font-size:11px;line-height:1.3}}
+section[data-testid="stSidebar"] [data-testid="stRadioOption"] {{background:rgba(255,255,255,.55);border-radius:16px;padding:11px 14px;border:1px solid transparent;width:100%;margin-bottom:8px}}
+section[data-testid="stSidebar"] [data-testid="stRadioOption"]:hover {{background:#fff}}
+section[data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] {{background:#fff;border-color:{FUCHSIA};box-shadow:0 4px 12px rgba(158,44,106,.15)}}
+section[data-testid="stSidebar"] [data-testid="stRadioOption"] > div > div:first-child {{display:none}}
+section[data-testid="stSidebar"] [data-testid="stRadioOption"] p {{font-size:15px;font-weight:600;color:{POSEIDON}}}
+/* Mia */
+.mia {{display:flex;gap:16px;background:#fff;border-radius:22px;padding:18px 22px;margin:8px 0 16px;box-shadow:0 6px 22px rgba(158,44,106,.12);border:1px solid #F1DCE7}}
+.mia-av {{flex:0 0 56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#F1DCE7,#E7C3D6);display:flex;align-items:center;justify-content:center;font-size:32px}}
+.mia-nom {{font-family:{SERIF};font-weight:700;color:{FUCHSIA};font-size:15px;margin-bottom:4px}} .mia-txt {{color:{POSEIDON};line-height:1.55;font-size:15px}}
+/* cartes de campagnes et priorités */
+.cc {{background:#fff;border-radius:20px;padding:16px 18px;box-shadow:0 4px 16px rgba(18,57,85,.07);min-height:250px;border-top:5px solid {ALL_ABOARD}}}
+.cc.fort {{border-top-color:{NEPTUNE}}} .cc.faible {{border-top-color:{SPICE}}} .cc.moyen {{border-top-color:{ALL_ABOARD}}}
+.cc-t {{display:flex;align-items:center;gap:8px;margin-bottom:8px}} .cc-n {{font-weight:700;color:{POSEIDON}}}
+.cc-v {{font-family:{SERIF};font-size:34px;color:{POSEIDON};margin-top:8px}} .cc-s {{color:{GRIS};font-size:12px;margin-bottom:8px}}
+.cc-r {{background:#F7F1E8;border-radius:12px;padding:8px 10px;font-size:13px;color:{POSEIDON}}}
+.statut {{display:inline-block;padding:2px 10px;border-radius:99px;font-size:12px;font-weight:600;background:#F3ECE0;color:{POSEIDON}}}
+.reseau {{display:inline-flex;vertical-align:middle;margin-right:2px}}
+.prio {{background:#fff;border-radius:18px;padding:14px 18px;min-height:150px;box-shadow:0 4px 16px rgba(18,57,85,.07)}}
+.prio.fort {{border-left:6px solid {NEPTUNE}}} .prio.faible {{border-left:6px solid {SPICE}}} .prio.moyen {{border-left:6px solid {ACACIA}}}
+.prio-t {{font-family:{SERIF};font-weight:700;color:{POSEIDON};margin-bottom:4px}} .prio-n {{color:{FUCHSIA};font-weight:700;margin-right:6px}}
 </style>
-<div class="hero"><h1>📊 {NOM_PLATEFORME}</h1>
-<p>Toutes vos campagnes au même endroit : tableau de bord, comparaison, assistant IA et rapports. <b>L'IA recommande, l'humain décide.</b></p></div>
 """, unsafe_allow_html=True)
+
+LOGO = f"""<div style="display:flex;align-items:center;gap:10px"><svg viewBox="0 0 32 32" width="38" height="38"><circle cx="16" cy="16" r="6" fill="{FUCHSIA}"/><g stroke="{POSEIDON}" stroke-width="2" stroke-linecap="round"><path d="M16 3v4M16 25v4M3 16h4M25 16h4M7 7l2.8 2.8M22.2 22.2L25 25M7 25l2.8-2.8M22.2 9.8L25 7"/></g></svg><div class="lumen">Lumen</div></div><div class="slogan">Vos campagnes, enfin lisibles.</div><div class="officiel">{NOM_PLATEFORME}</div>"""
+
+
+def titre_page(titre, sous=""):
+    st.markdown(f'<div class="eyebrow">Lumen</div><h2 class="pt">{titre}</h2><p class="ps">{sous}</p>', unsafe_allow_html=True)
 
 
 def md(texte):
@@ -64,24 +93,24 @@ def badge(texte, style="simule"):
     return f'<span class="badge {style}">{texte}</span>'
 
 
-# ------------------------------------------------------------------ réglages et données
-with st.sidebar:
-    st.header("⚙️ Réglages")
-    profil = st.selectbox("Sujet de la campagne", list(PROFILS), help="Adapte le ton conseillé et les règles de conformité.")
-    objectif = st.selectbox("Objectif principal", ["notoriété", "engagement", "trafic", "conversion", "fidélisation"], index=3,
-                            help="Choisit l'indicateur que l'IA suit en priorité.")
-    base = st.selectbox("Taux d'engagement calculé sur", ["portée", "abonnés", "vues"], help="La portée est conseillée : elle reflète les personnes réellement touchées.")
-    nb_abonnes = st.number_input("Nombre d'abonnés (si base = abonnés)", 0, 10**9, 5000, step=100)
-    with st.expander("Réglages avancés"):
-        age = st.number_input("Comparer les publications à l'âge (heures)", 1, 720, 48)
-        tol = st.number_input("Tolérance (± heures)", 0, 72, 6)
-        seuil = st.number_input("Seuil « échantillon fragile » (publications)", 5, 200, 20)
-        mape = st.number_input("Erreur de prévision visée (%)", 5, 100, 20)
-        alerte = st.number_input("Alerte si commentaires négatifs ≥ (%)", 10, 90, 40)
+# ------------------------------------------------------------------ navigation, données, réglages
+PAGES = ["bord", "camp", "mia", "rapport"]
+LIBELLES = {"bord": "① Tableau de bord", "camp": "② Campagnes", "mia": "③ Assistant IA · Mia", "rapport": "④ Rapports"}
 
+
+def aller(page, fiche=None):
+    st.session_state["page"] = page
+    if fiche:
+        st.session_state["fiche"] = fiche
+
+
+with st.sidebar:
+    st.markdown(LOGO, unsafe_allow_html=True)
+    st.write("")
+    page = st.radio("Navigation", PAGES, format_func=LIBELLES.get, key="page", label_visibility="collapsed")
     st.divider()
-    st.header("📂 Mes données")
-    st.caption("Sans fichier, la plateforme affiche une démo avec des données fictives.")
+    st.markdown("##### Mes données")
+    st.caption("Sans fichier, Lumen affiche une démonstration avec des données fictives.")
     fichiers_up = st.file_uploader("Exports CSV ou Excel (réseaux sociaux, publicité, site…)",
                                    type=["csv", "xls", "xlsx"], accept_multiple_files=True)
     comm_up = st.file_uploader("Commentaires (facultatif, CSV)", type=["csv"], key="comm")
@@ -97,6 +126,17 @@ with st.sidebar:
 | campagne | campagne, campaign |
 
 Une colonne manquante est signalée, jamais devinée.""")
+    with st.expander("Réglages"):
+        profil = st.selectbox("Sujet de la campagne", list(PROFILS), help="Adapte le ton conseillé et les règles de conformité.")
+        objectif = st.selectbox("Objectif principal", ["notoriété", "engagement", "trafic", "conversion", "fidélisation"], index=3,
+                                help="Choisit l'indicateur que l'IA suit en priorité.")
+        base = st.selectbox("Taux d'engagement calculé sur", ["portée", "abonnés", "vues"], help="La portée est conseillée : elle reflète les personnes réellement touchées.")
+        nb_abonnes = st.number_input("Nombre d'abonnés (si base = abonnés)", 0, 10**9, 5000, step=100)
+        age = st.number_input("Comparer les publications à l'âge (heures)", 1, 720, 48)
+        tol = st.number_input("Tolérance (± heures)", 0, 72, 6)
+        seuil = st.number_input("Seuil « échantillon fragile » (publications)", 5, 200, 20)
+        mape = st.number_input("Erreur de prévision visée (%)", 5, 100, 20)
+        alerte = st.number_input("Alerte si commentaires négatifs ≥ (%)", 10, 90, 40)
     st.caption("100 % gratuit · vos fichiers ne sont pas enregistrés par l'appli.")
 
 REGLAGES = dict(PROFIL=profil, OBJECTIF=objectif, BASE_ENGAGEMENT=base, NB_ABONNES=int(nb_abonnes),
@@ -143,24 +183,6 @@ elif mode == "demo":
     DF["campagne"] = DF["canal"].map(CAMPAGNES_DEMO).fillna(DF["canal"].astype(str))
 else:
     DF["campagne"] = DF["canal"].astype(str).str.capitalize()
-
-if mode == "demo":
-    st.markdown(badge("Mode démo : campagnes fictives du « Festival d'été 2026 »", "demo")
-                + " &nbsp;Importez vos propres exports dans le menu de gauche (›› en haut à gauche sur mobile).", unsafe_allow_html=True)
-
-with st.expander("👋 Première visite ? Comment utiliser la plateforme", expanded=False):
-    st.markdown(f"""
-| Espace | À quoi il sert |
-|---|---|
-| **📊 Tableau de bord** | Voir en 10 secondes si tout va bien : chiffres clés, alertes, tendance. |
-| **📣 Campagnes** | Comparer les campagnes entre elles et ouvrir la fiche de l'une d'elles. |
-| **🤖 Assistant IA** | Comprendre, repérer forces et difficultés, anticiper, recevoir des recommandations, améliorer contenus et canaux. |
-| **📄 Rapports** | Une synthèse visuelle prête à partager ou à télécharger. |
-
-**Code couleur :** {badge("fuchsia = IA", "ia")} · vert = point fort · brun-rouge = difficulté · {badge("jaune = à vérifier ou fonction simulée")}
-Les réglages (objectif, sujet) sont dans le menu de gauche : l'IA s'adapte à l'objectif choisi.
-""", unsafe_allow_html=True)
-
 
 # ------------------------------------------------------------------ calculs d'affichage par campagne
 TAUX = {"ctr": "CTR", "taux_conversion": "Taux de conversion", "taux_engagement": "Taux d'engagement", "cpa": "Coût / action (€)", "roas": "ROAS"}
@@ -297,13 +319,135 @@ def idees_publications():
     ton = ns["P"]["ton"]
     sujet = "le festival" if mode == "demo" else "votre offre"
     return canal, fmt, jour, heure, ton, [
-        f"**Accroche « coulisses »** ({fmt} sur {canal}, {jour} {heure} h) : « J-10 ! On vous emmène dans les coulisses de {sujet}. Qui sera là ? 👀 » + appel à commenter.",
+        f"**Accroche « coulisses »** ({fmt} sur {canal}, {jour} {heure} h) : « J-10 ! On vous emmène dans les coulisses de {sujet}. Qui sera là ? » + appel à commenter.",
         f"**Preuve sociale** ({fmt}) : 3 avis ou réactions du public, puis « Rejoignez-les : lien en bio ».",
         f"**Question à la communauté** ({canal}) : « Votre moment préféré de l'an dernier ? » pour relancer l'engagement.",
         f"**Rappel d'action** (la veille au soir) : « Dernières places, réservez avant minuit » : un seul message clair, un seul lien.",
     ]
 
 
+
+# ------------------------------------------------------------------ réseaux sociaux (pastilles) et Mia
+_SVG = {
+    "instagram": '<defs><linearGradient id="ig" x1="0" y1="1" x2="1" y2="0"><stop offset="0" stop-color="#F9A03F"/><stop offset=".5" stop-color="#DD2A7B"/><stop offset="1" stop-color="#7B3FBF"/></linearGradient></defs><rect width="24" height="24" rx="6" fill="url(#ig)"/><rect x="5.5" y="5.5" width="13" height="13" rx="4" fill="none" stroke="#fff" stroke-width="1.6"/><circle cx="12" cy="12" r="3.2" fill="none" stroke="#fff" stroke-width="1.6"/><circle cx="16.2" cy="7.8" r="1" fill="#fff"/>',
+    "tiktok": '<rect width="24" height="24" rx="6" fill="#111"/><path d="M13 5.5v8.2a2.6 2.6 0 1 1-2.6-2.6" fill="none" stroke="#25F4EE" stroke-width="1.8" stroke-linecap="round" transform="translate(-.7 -.4)"/><path d="M13 5.5v8.2a2.6 2.6 0 1 1-2.6-2.6" fill="none" stroke="#FE2C55" stroke-width="1.8" stroke-linecap="round" transform="translate(.7 .4)"/><path d="M13 5.5v8.2a2.6 2.6 0 1 1-2.6-2.6M13 5.5c.3 1.8 1.6 3 3.5 3.1" fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>',
+    "linkedin": '<rect width="24" height="24" rx="6" fill="#0A66C2"/><text x="12" y="17" font-size="12" font-weight="700" fill="#fff" text-anchor="middle" font-family="Arial">in</text>',
+    "facebook": '<rect width="24" height="24" rx="6" fill="#1877F2"/><text x="13.5" y="20" font-size="19" font-weight="700" fill="#fff" text-anchor="middle" font-family="Arial">f</text>',
+    "youtube": '<rect width="24" height="24" rx="6" fill="#E62117"/><path d="M9.5 8v8l7-4z" fill="#fff"/>',
+    "newsletter": f'<rect width="24" height="24" rx="6" fill="{POSEIDON}"/><rect x="5" y="7" width="14" height="10" rx="2" fill="none" stroke="#fff" stroke-width="1.6"/><path d="M5.5 8.5l6.5 5 6.5-5" fill="none" stroke="#fff" stroke-width="1.6"/>',
+}
+
+
+def pastille(canal, t=26):
+    c = str(canal).lower()
+    corps = _SVG.get(c) or f'<rect width="24" height="24" rx="6" fill="{GRIS}"/><text x="12" y="16.5" font-size="12" font-weight="700" fill="#fff" text-anchor="middle" font-family="Arial">{c[:1].upper()}</text>'
+    return f'<span class="reseau" title="{c.capitalize()}"><svg viewBox="0 0 24 24" width="{t}" height="{t}">{corps}</svg></span>'
+
+
+def canaux_de(nom):
+    return list(DF[DF["campagne"] == nom]["canal"].dropna().astype(str).str.lower().unique())
+
+
+def statut_cle(statut):
+    return "fort" if statut.startswith("🟢") else ("faible" if statut.startswith("🔴") else "moyen")
+
+
+def ec(x):
+    return "n/a" if pd.isna(x) else f"{x:+.0f} %"
+
+
+def reco_campagne(nom):
+    d = DF[DF["campagne"] == nom]
+    cle = statut_cle(CAMP.loc[nom, "Statut"])
+    fmt_best = None
+    if "format" in d and d["format"].notna().any() and d[METRIQUE].notna().any():
+        fmt_best = d.groupby("format")[METRIQUE].median().sort_values(ascending=False).index[0]
+    prudence = " (peu de publications : à confirmer)" if len(d) < SEUIL else ""
+    if cle == "fort":
+        return f"Belle dynamique, bravo ! Continuez sur cette lancée{' avec le format ' + str(fmt_best) if fmt_best else ''}{prudence}."
+    if cle == "faible":
+        return f"Pas de panique, on peut la redresser : essayez{' le format ' + str(fmt_best) + ' et' if fmt_best else ''} un autre créneau{prudence}."
+    return f"Résultats corrects. Un test de format ou de créneau peut la faire passer un cap{prudence}."
+
+
+def humeur():
+    if ns["SENT"] is not None and "ALERTE" in ns["ALERTE_TXT"]:
+        return "😟"
+    return "🤔" if CAMP["Statut"].str.startswith("🔴").any() else "😊"
+
+
+def alerte_courte():
+    m = re.match(r"Négatifs sur 7 jours : (\S+ %) \(semaine précédente : (\S+ %)\)", ns["ALERTE_TXT"])
+    if m:
+        return f"les commentaires négatifs représentent {m.group(1)} sur 7 jours (contre {m.group(2)} la semaine précédente)."
+    return ns["ALERTE_TXT"].split(" ALERTE")[0]
+
+
+def message_mia():
+    """Texte rédigé à partir des vrais chiffres : rien n'est inventé."""
+    parts = []
+    if len(CAMP) > 1:
+        b, w = CAMP.index[0], CAMP.index[-1]
+        eb, ew = CAMP.loc[b, "Écart à la médiane"], CAMP.loc[w, "Écart à la médiane"]
+        vb, vw = fm(CAMP.loc[b, "_perf"]), fm(CAMP.loc[w, "_perf"])
+        if pd.notna(eb) and pd.notna(ew) and eb >= 10 and ew <= -10:
+            parts.append(f"Bonne nouvelle : votre campagne <b>{b}</b> performe ({NOM_M.lower()} {vb}, {eb:+.0f} % vs médiane), et je tiens à vous en féliciter. "
+                         f"<b>{w}</b> a besoin d'aide ({vw}, {ew:+.0f} %), mais rien d'irrattrapable : j'ai déjà quelques pistes.")
+        elif pd.notna(eb) and eb >= 10:
+            parts.append(f"Bonne nouvelle : <b>{b}</b> se détache ({NOM_M.lower()} {vb}, {eb:+.0f} % vs médiane) et aucune campagne ne décroche. Belle régularité !")
+        elif pd.notna(ew) and ew <= -10:
+            parts.append(f"Soyons honnêtes : <b>{w}</b> est en retrait ({NOM_M.lower()} {vw}, {ew:+.0f} % vs médiane). Ce n'est pas une fatalité, regardons ensemble comment la relancer.")
+        else:
+            parts.append("Vos campagnes avancent de façon homogène : aucune ne décroche, et c'est plutôt rassurant.")
+    else:
+        parts.append(f"J'ai analysé votre campagne : {NOM_M.lower()} médian de {fm(DF[METRIQUE].median())}.")
+    if ns["SENT"] is not None and "ALERTE" in ns["ALERTE_TXT"]:
+        parts.append(f"Un point me préoccupe aussi : {alerte_courte()} Je comprends que ce soit inquiétant. Respirez : on vérifie les faits, puis on prépare une réponse, étape par étape.")
+    n_f = int((CAMP["Publications"] < SEUIL).sum())
+    if n_f:
+        parts.append(f"Par honnêteté, {n_f} campagne(s) reposent sur moins de {SEUIL} publications : je reste prudente avant de conclure.")
+    return "<br><br>".join(parts)
+
+
+def carte_mia(texte, mood=None, titre="Mia, votre assistante"):
+    st.markdown(f'<div class="mia"><div class="mia-av">{mood or humeur()}</div><div><div class="mia-nom">{titre}</div><div class="mia-txt">{texte}</div></div></div>', unsafe_allow_html=True)
+
+
+def priorites():
+    alerte = ns["SENT"] is not None and "ALERTE" in ns["ALERTE_TXT"]
+    bas = CAMP[CAMP["Statut"].str.startswith("🔴")]
+    haut = CAMP[CAMP["Statut"].str.startswith("🟢")]
+    items = []
+    if alerte:
+        items.append(("À traiter en premier", "faible", f"Attention : {alerte_courte()} Vérifiez les faits avant de répondre : Mia vous aide à préparer la suite."))
+    elif len(bas):
+        w = bas.index[-1]
+        items.append(("À traiter en premier", "faible", f"<b>{w}</b> est en retrait ({fm(bas.loc[w, '_perf'])}). {reco_campagne(w)}"))
+    else:
+        items.append(("À surveiller", "moyen", "Aucune alerte aujourd'hui. Gardez un œil sur la tendance."))
+    if len(haut):
+        b = haut.index[0]
+        items.append(("À amplifier", "fort", f"<b>{b}</b> performe ({fm(haut.loc[b, '_perf'])}, {ec(haut.loc[b, 'Écart à la médiane'])} vs médiane). {reco_campagne(b)}"))
+    else:
+        items.append(("À amplifier", "moyen", "Aucune campagne ne se détache encore : testez un nouveau format pour trouver ce qui fonctionne."))
+    fr = CAMP[CAMP["Publications"] < SEUIL]
+    if len(fr):
+        items.append(("À confirmer", "moyen", f"{len(fr)} campagne(s) reposent sur moins de {SEUIL} publications : confirmez avant de déplacer du budget."))
+    else:
+        items.append(("À confirmer", "moyen", "Validez vos choix par un test A/B avant de déplacer du budget."))
+    return items
+
+
+def carte_campagne_html(nom):
+    r = CAMP.loc[nom]
+    cle = statut_cle(r["Statut"])
+    pas = "".join(pastille(c) for c in canaux_de(nom))
+    return (f'<div class="cc {cle}"><div class="cc-t">{pas}<span class="cc-n">{nom}</span></div><span class="statut">{r["Statut"]}</span>'
+            f'<div class="cc-v">{fm(r["_perf"])}</div><div class="cc-s">{NOM_M} · {ec(r["Écart à la médiane"])} vs médiane · {int(r["Publications"])} publications</div>'
+            f'<div class="cc-r">{reco_campagne(nom)}</div></div>')
+
+
+res = prev.prevoir_serie(DF, CIBLE, 8)
 
 # ------------------------------------------------------------------ Gemini (facultatif)
 # La clé se met dans les « Secrets » de Streamlit Cloud, JAMAIS dans le code :
@@ -349,7 +493,7 @@ def contexte_ia():
     return "\n".join(lignes)
 
 
-CONSIGNE = ("Tu es l'assistant IA d'une plateforme d'analyse de campagnes de communication. Réponds en français, "
+CONSIGNE = ("Tu es Mia, l'assistante IA de Lumen, une plateforme d'analyse de campagnes de communication. Tu es chaleureuse, bienveillante, empathique et professionnelle : tu vouvoies, tu félicites quand c'est mérité, tu rassures quand un résultat est mauvais. Réponds en français, "
             "de façon courte, claire et concrète, à un professionnel de la communication qui n'est pas statisticien. "
             "Appuie-toi UNIQUEMENT sur les données fournies ; si l'information n'y est pas, dis-le au lieu d'inventer. "
             "Signale quand un résultat repose sur peu de publications. Ne donne jamais d'ordre : propose, l'humain décide.")
@@ -384,53 +528,46 @@ def quota_ok():
     return True
 
 # ------------------------------------------------------------------ les quatre espaces
-tab_bord, tab_camp, tab_ia, tab_rapport = st.tabs(["📊 Tableau de bord", "📣 Campagnes", "🤖 Assistant IA", "📄 Rapports"])
 
 # ================================================================== A. TABLEAU DE BORD
-with tab_bord:
-    st.caption(f"Activité {periode()} · {len(CAMP)} campagnes · {len(DF)} publications · indicateur suivi : **{NOM_M}** (objectif « {objectif} »)")
+if page == "bord":
+    titre_page("Tableau de bord", f"{periode()} · {len(CAMP)} campagnes · {len(DF)} publications · indicateur suivi : {NOM_M} (objectif « {objectif} »)")
+    if mode == "demo":
+        carte_mia("Bonjour, je suis Mia. Pour que j'analyse <b>vos</b> campagnes, importez vos fichiers dans le menu à gauche : sans fichier, je n'ai rien d'honnête à vous dire. "
+                  "En attendant, voici une <b>démonstration</b> avec des données fictives (le lancement d'un festival). Voici ce que je vous dirais :<br><br>" + message_mia(),
+                  titre="Mia, votre assistante · " + "démo")
+    else:
+        carte_mia("Bonjour ! J'ai analysé vos fichiers. " + message_mia())
+    st.button("Parler à Mia", on_click=aller, args=("mia",), type="primary")
+
+    st.markdown("### Vos 3 priorités")
+    cols = st.columns(3)
+    for i, (c, (titre, cle, txt)) in enumerate(zip(cols, priorites()), 1):
+        c.markdown(f'<div class="prio {cle}"><div class="prio-t"><span class="prio-n">{i}</span>{titre}</div>{txt}</div>', unsafe_allow_html=True)
+
+    st.markdown("### Vos campagnes")
+    noms_c = list(CAMP.index)
+    for i in range(0, len(noms_c), 3):
+        cols = st.columns(3)
+        for c, nom in zip(cols, noms_c[i:i + 3]):
+            with c:
+                st.markdown(carte_campagne_html(nom), unsafe_allow_html=True)
+                st.button("Ouvrir la fiche", key=f"fiche_{nom}", on_click=aller, args=("camp", nom))
+
+    st.markdown("### Chiffres clés")
     afficher_cartes()
-
-    # alertes
-    alertes = []
-    if ns["SENT"] is not None and "ALERTE" in ns["ALERTE_TXT"]:
-        alertes.append(("faible", "🚨 <b>Alerte e-réputation</b> : " + ns["ALERTE_TXT"]))
-    sous = CAMP[CAMP["Statut"].str.startswith("🔴")]
-    if len(sous):
-        alertes.append(("vigil", f"⚠️ <b>{len(sous)} campagne(s) en dessous de la médiane</b> : {', '.join(sous.index)}. Voir l'onglet Campagnes."))
-    tr = tendance_recente()
-    if tr is not None and tr <= -10:
-        alertes.append(("vigil", f"📉 <b>Tendance en baisse</b> : {NOM_M.lower()} −{abs(tr):.0f} % sur 4 semaines."))
-    if alertes:
-        st.subheader("Alertes")
-        for style, txt in alertes:
-            carte(txt, style)
-
-    c1, c2 = st.columns([1.1, 1])
-    with c1:
-        st.subheader("Où en sont les campagnes ?")
-        mini = CAMP[["Statut", "_perf", "Publications"]].copy()
-        mini[NOM_M] = mini.pop("_perf").map(fm)
-        st.dataframe(mini, width="stretch")
-    with c2:
-        st.subheader("Tendance")
-        if not montrer_graphe("tendance"):
-            st.info("Il faut des dates pour afficher la tendance.")
-
+    st.markdown("### Tendance")
+    if not montrer_graphe("tendance"):
+        st.info("Il faut des dates pour afficher la tendance.")
     c1, c2 = st.columns(2)
     with c1:
         montrer_graphe("canal")
     with c2:
         montrer_graphe("sentiment") or montrer_graphe("creneaux")
 
-    st.subheader("🤖 Les 3 points à retenir")
-    forts, faibles = points_forts_difficultes()
-    for txt in (forts[:1] + faibles[:1] + [r for r in ns["recommandations"]()][:1]):
-        carte(txt, "ia")
-    st.caption("Détails et explications dans l'onglet 🤖 Assistant IA.")
-
 # ================================================================== B. CAMPAGNES
-with tab_camp:
+if page == "camp":
+    titre_page("Campagnes", "Comparez vos résultats et ouvrez la fiche de chaque campagne.")
     st.caption("Comparez vos campagnes. Chaque campagne est comparée à la médiane de toutes les publications : vert = au-dessus (+10 % ou plus), brun-rouge = en dessous (−10 % ou plus), bleu = dans la norme. « Fragile » = moins de publications que le seuil fixé : à confirmer.")
     choix = st.multiselect("Campagnes à comparer", list(CAMP.index), default=list(CAMP.index))
     if not choix:
@@ -456,8 +593,11 @@ with tab_camp:
             else:
                 st.altair_chart(gr.evolution_campagnes(mensuel, ind, est_taux), width="stretch")
 
-        st.subheader("🔎 Fiche campagne")
-        nom_c = st.selectbox("Ouvrir la fiche de", choix)
+        st.subheader("Fiche campagne")
+        if st.session_state.get("fiche") not in list(CAMP.index):
+            st.session_state.pop("fiche", None)
+        nom_c = st.selectbox("Ouvrir la fiche de", list(CAMP.index), key="fiche")
+        st.markdown("".join(pastille(c, 30) for c in canaux_de(nom_c)) + f' <span class="cc-n">{nom_c}</span> &nbsp;<span class="statut">{CAMP.loc[nom_c, "Statut"]}</span>', unsafe_allow_html=True)
         d = DF[DF["campagne"] == nom_c]
         r = CAMP.loc[nom_c]
         m = st.columns(4)
@@ -476,10 +616,13 @@ with tab_camp:
             carte("<br>".join(lignes) + ("<br><i>Moins de " + str(SEUIL) + " publications : à confirmer.</i>" if len(d) < SEUIL else ""), "info")
 
 # ================================================================== C. ASSISTANT IA
-with tab_ia:
-    st.markdown(badge("🤖 Assistant IA", "ia") + " &nbsp;L'IA analyse vos données, explique et propose. <b>Chaque décision reste humaine.</b>", unsafe_allow_html=True)
-    s1, s2, s3, s4, s5, s6 = st.tabs(["💡 Comprendre", "⚖️ Forces et difficultés", "🔮 Anticiper", "✅ Recommandations",
-                                      "✍️ Améliorer contenus et canaux", "💬 Poser une question"])
+if page == "mia":
+    titre_page("Assistant IA", "Mia vous explique, anticipe et recommande. Chaque décision reste humaine.")
+    carte_mia("Bonjour, c'est Mia ! Je suis là pour vous aider à comprendre vos résultats, sans jargon. Choisissez un volet ci-dessous : "
+              "je vous explique chiffres à l'appui, et je vous dis franchement quand je ne suis pas sûre." if mode == "import" else
+              "Bonjour, c'est Mia ! Je vous réponds ici à partir des données fictives de la démo. Importez vos fichiers pour que je parle de vos vraies campagnes.")
+    s1, s2, s3, s4, s5, s6 = st.tabs(["Comprendre", "Forces et difficultés", "Anticiper", "Recommandations",
+                                      "Améliorer contenus et canaux", "Poser une question"])
 
     # --- 1. comprendre
     with s1:
@@ -512,11 +655,11 @@ with tab_ia:
         forts, faibles = points_forts_difficultes()
         c1, c2 = st.columns(2)
         with c1:
-            st.markdown("#### ✅ Points forts")
+            st.markdown("#### Points forts")
             for f in forts:
                 carte(f, "fort")
         with c2:
-            st.markdown("#### ⚠️ Difficultés")
+            st.markdown("#### Difficultés")
             for f in faibles:
                 carte(f, "faible")
         c1, c2 = st.columns(2)
@@ -645,14 +788,14 @@ with tab_ia:
 
         canal_i, fmt_i, jour_i, heure_i, ton_i, idees = idees_publications()
         if CLE_GEMINI:
-            st.markdown("##### Idées de publications " + badge("✨ rédigées par Gemini", "ia"), unsafe_allow_html=True)
+            st.markdown("##### Idées de publications " + badge("rédigées par Gemini", "ia"), unsafe_allow_html=True)
             st.caption(f"Gemini s'appuie sur ce qui marche le mieux dans vos données ({fmt_i}, {canal_i}, {jour_i} {heure_i} h) et sur le ton « {ton_i} ». Relisez avant de publier.")
-            if st.button("✨ Rédiger 3 publications") and quota_ok():
+            if st.button("Rédiger 3 publications") and quota_ok():
                 with st.spinner("Gemini rédige…"):
                     txt, err = demander_gemini([("user",
                         f"Rédige 3 propositions de publications prêtes à poster pour {canal_i}, au format {fmt_i}, à publier le {jour_i} vers {heure_i} h. "
                         "Pour chacune : un titre court, le texte (avec emojis si adapté au canal), l'appel à l'action, et une phrase qui explique pourquoi, d'après les données.")])
-                st.session_state["idees_gemini"] = txt or f"⚠️ Gemini indisponible ({err}). Voici les modèles prédéfinis ci-dessous."
+                st.session_state["idees_gemini"] = txt or f"Gemini indisponible ({err}). Voici les modèles prédéfinis ci-dessous."
             if st.session_state.get("idees_gemini"):
                 with st.container(border=True):
                     st.markdown(st.session_state["idees_gemini"])
@@ -690,7 +833,7 @@ with tab_ia:
         if ns["SENT"] is not None:
             st.markdown("##### Ce que dit le public (commentaires)")
             if "ALERTE" in ns["ALERTE_TXT"]:
-                st.error("🚨 " + ns["ALERTE_TXT"])
+                st.error("" + ns["ALERTE_TXT"])
             else:
                 st.info(ns["ALERTE_TXT"])
             with st.expander("Exemples de commentaires négatifs"):
@@ -702,7 +845,7 @@ with tab_ia:
     with s6:
         st.subheader("Poser une question à l'assistant")
         if CLE_GEMINI:
-            st.markdown(badge("✨ Gemini", "ia") + " &nbsp;Posez votre question librement. Seuls des chiffres agrégés (tableau des campagnes, indicateurs) "
+            st.markdown(badge("Gemini", "ia") + " &nbsp;Posez votre question librement. Seuls des chiffres agrégés (tableau des campagnes, indicateurs) "
                         "sont envoyés à Gemini, jamais vos fichiers. <b>L'IA propose, vous décidez.</b>", unsafe_allow_html=True)
         else:
             st.markdown(badge("fonction simulée") + " &nbsp;Les réponses sont construites à partir de vos chiffres, sans IA générative. "
@@ -728,12 +871,12 @@ with tab_ia:
             if q:
                 st.session_state["pill_deja"] = q
             for r, t in histo:
-                with st.chat_message("user" if r == "user" else "assistant", avatar="🧑" if r == "user" else "🤖"):
+                with st.chat_message("user" if r == "user" else "assistant", avatar=None if r == "user" else humeur()):
                     st.markdown(t)
             if question and quota_ok():
-                with st.chat_message("user", avatar="🧑"):
+                with st.chat_message("user", avatar=None):
                     st.markdown(question)
-                with st.chat_message("assistant", avatar="🤖"):
+                with st.chat_message("assistant", avatar=humeur()):
                     with st.spinner("Gemini réfléchit…"):
                         txt, err = demander_gemini(histo[-6:] + [("user", question)])
                     if txt:
@@ -748,15 +891,15 @@ with tab_ia:
         else:
             q = st.radio("Choisissez une question", list(reponses), index=None)
             if q:
-                with st.chat_message("user", avatar="🧑"):
+                with st.chat_message("user", avatar=None):
                     st.write(q)
-                with st.chat_message("assistant", avatar="🤖"):
+                with st.chat_message("assistant", avatar=humeur()):
                     st.markdown(reponses[q], unsafe_allow_html=True)
                     st.caption("Réponse fondée sur vos données. À vous de décider.")
 
 # ================================================================== D. RAPPORTS
-with tab_rapport:
-    st.subheader("📄 Rapport de synthèse")
+if page == "rapport":
+    titre_page("Rapports", "Une synthèse claire à partager, avec les recommandations de Mia.")
     st.caption(f"{NOM_PLATEFORME} · {periode()} · objectif « {objectif} » · profil « {profil} »"
                + (" · données fictives (démo)" if mode == "demo" else ""))
     afficher_cartes()
@@ -806,15 +949,15 @@ with tab_rapport:
                       A_IMPRESSIONS=S.get("ab_ai", 0), A_CLICS=S.get("ab_ac", 0), B_IMPRESSIONS=S.get("ab_bi", 0), B_CLICS=S.get("ab_bc", 0))
             try:
                 ns2, _ = analyser(dict(fichiers), mode == "demo", rg, comm_bytes)
-                st.download_button("⬇ Télécharger le rapport (HTML, s'ouvre dans un navigateur)", ns2["HTML_DASH"].encode("utf-8"),
+                st.download_button("Télécharger le rapport (HTML, s'ouvre dans un navigateur)", ns2["HTML_DASH"].encode("utf-8"),
                                    file_name="rapport_campagnes.html", mime="text/html")
             except Exception as e:
                 st.error(f"Le rapport n'a pas pu être généré : {e}")
         st.caption("Astuce : pour un PDF, ouvrez le rapport HTML puis Imprimer › Enregistrer en PDF.")
     with c2:
-        st.download_button("⬇ Tableau des campagnes (CSV)", tableau_affichage(CAMP).to_csv().encode("utf-8"),
+        st.download_button("Tableau des campagnes (CSV)", tableau_affichage(CAMP).to_csv().encode("utf-8"),
                            file_name="comparaison_campagnes.csv", mime="text/csv")
-        st.download_button("⬇ Données centralisées (CSV)", DF.to_csv(index=False).encode("utf-8"),
+        st.download_button("Données centralisées (CSV)", DF.to_csv(index=False).encode("utf-8"),
                            file_name="donnees_centralisees.csv", mime="text/csv")
     with st.expander(f"Voir les données centralisées ({len(DF)} lignes)"):
         st.caption("Les valeurs manquantes sont laissées vides, jamais inventées.")
