@@ -46,3 +46,10 @@ Les statistiques ne prouvent pas la cause d'un résultat et ne voient pas le hor
 Sans clé, l'assistant fonctionne en mode simulé. Pour activer Gemini, ajouter dans Streamlit Cloud
 (réglages de l'appli > **Secrets**) : `GEMINI_API_KEY = "votre_clé"`. La clé ne va JAMAIS dans le code ni sur GitHub.
 Seuls des chiffres agrégés sont envoyés à Gemini, jamais les fichiers importés. Limite : 15 questions par visite.
+
+## Sécurité de la clé (mode avancé de Mia)
+- La clé n'est **jamais dans le code ni sur GitHub** : elle est dans les « Secrets » de Streamlit Cloud, lus côté serveur uniquement (jamais envoyés au navigateur). `.streamlit/secrets.toml`, `.env` et `*.key` sont ignorés par git.
+- Elle ne circule que dans un en-tête HTTPS vers Google, jamais dans une adresse, un message d'erreur ou un journal (les erreurs sont nettoyées).
+- Protections contre l'abus : 15 questions par visite, 400 appels par jour au total, 2,5 s minimum entre deux messages, questions limitées à 500 caractères, consigne anti-détournement.
+- Seuls des chiffres agrégés sont envoyés, jamais les fichiers importés.
+- Bon réflexe : dans Google AI Studio, limiter la clé à l'API « Generative Language » et fixer un quota ; en cas de doute, la supprimer et en créer une nouvelle.
