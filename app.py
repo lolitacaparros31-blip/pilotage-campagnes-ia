@@ -626,13 +626,12 @@ def chat_flottant():
 
 
 st.markdown(f"""<style>
-.st-key-mia_chat {{position:fixed !important;left:18px;bottom:18px;z-index:1000;width:auto !important}}
+.st-key-mia_chat {{position:fixed !important;right:18px;bottom:18px;left:auto !important;z-index:1000;width:auto !important}}
 .st-key-mia_chat button {{border-radius:999px !important;background:{FUCHSIA} !important;background-color:{FUCHSIA} !important;border:2px solid #fff !important;padding:6px 20px 6px 8px !important;box-shadow:0 8px 24px rgba(158,44,106,.45) !important}}
 .st-key-mia_chat button:hover {{background:#B13580 !important}}
 .st-key-mia_chat button p, .st-key-mia_chat button span {{color:#fff !important;font-weight:600}}
 .st-key-mia_chat button::before {{content:"";width:38px;height:38px;border-radius:50%;margin-right:10px;border:2px solid #fff;background:url(data:image/jpeg;base64,{MIA_B64}) center/cover}}
 div[data-testid="stPopoverBody"] {{width:min(440px,92vw);border-radius:20px}}
-section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {{max-height:calc(100vh - 92px);overflow-y:auto}}
 section[data-testid="stSidebar"] {{z-index:100 !important}}
 </style>""", unsafe_allow_html=True)
 chat_flottant()
