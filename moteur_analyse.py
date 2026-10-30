@@ -454,7 +454,12 @@ for c, nom, f in [("ctr","CTR",fmt_pct), ("taux_conversion","Conversion",fmt_pct
                   ("cpa","Coût / action",lambda v: f"{v:.2f} €"), ("roas","ROAS",lambda v: f"{v:.2f}")]:
     v = med(c)
     if v is not None and not np.isnan(v): CARTES.append((nom, f(v), "médiane"))
-if MAPE is not None: CARTES.append(("Erreur de prévision", f"{MAPE:.0f} %", f"objectif < {OBJECTIF_MAPE} %"))
+# Erreur de prévision : mesurée sur les totaux hebdomadaires (rétro-test), là où la prévision s'applique réellement.
+# Le MAPE par publication explose dès qu'un résultat est proche de zéro (0 à 3 réservations) et n'est pas une mesure pertinente.
+import prevision as _prev
+ERR_HEBDO = _prev.erreur_hebdo(DF, CIBLE) if CIBLE else None
+if ERR_HEBDO is not None: CARTES.append(("Erreur de prévision", f"{ERR_HEBDO:.0f} %", f"sur les totaux hebdomadaires (rétro-test) · objectif < {OBJECTIF_MAPE} %"))
+else: CARTES.append(("Erreur de prévision", "n/a", "historique trop court (moins de 12 semaines)"))
 
 def recommandations():
     rec, meilleur_canal = [], None
@@ -481,7 +486,7 @@ def limites():
     l = ["Les chiffres montrent ce qui s'est passé, pas pourquoi : la causalité n'est pas démontrée.",
          "Les statistiques dépendent de la visibilité donnée par les algorithmes et ne voient pas le hors-ligne.",
          "Exports agrégés : analyse par segments, pas par individu."]
-    if MAPE is not None and MAPE >= OBJECTIF_MAPE: l.append(f"Précision du modèle ({MAPE:.0f} %) au-dessus de l'objectif de {OBJECTIF_MAPE} % : prévisions indicatives.")
+    if ERR_HEBDO is not None and ERR_HEBDO >= OBJECTIF_MAPE: l.append(f"Erreur des prévisions hebdomadaires ({ERR_HEBDO:.0f} %) au-dessus de l'objectif de {OBJECTIF_MAPE} % : à lire comme des ordres de grandeur.")
     if SENT is not None: l.append("Sentiment : ironie, jargon local et second degré mal détectés ; les commentateurs ne représentent pas la majorité silencieuse.")
     l += [f"Import : {r}" for r in RAPPORT_IMPORT]
     return l

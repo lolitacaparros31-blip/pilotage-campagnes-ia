@@ -102,3 +102,22 @@ def objectif_atteignable(prev, objectif, semaines):
     return {"verdict": verdict, "niveau": niveau, "total": tot, "bas": bas, "haut": haut,
             "rythme_necessaire": objectif / semaines, "rythme_actuel": recent,
             "ecart_pct": (objectif / semaines / recent - 1) * 100 if recent > 0 else None}
+
+
+def erreur_hebdo(df, col, nb_tests=8):
+    """Erreur réelle de la prévision hebdomadaire, mesurée par rétro-test : on « oublie » chaque semaine récente, on la prévoit avec la même méthode
+    que prevoir_serie (tendance si significative, sinon niveau moyen), puis on compare au réel.
+    Retourne l'erreur pondérée (WAPE : somme des écarts / somme des résultats, en %) ou None si l'historique est trop court."""
+    s, err = serie_hebdo(df, col)
+    if err or s is None or len(s) < SEMAINES_MIN + 4:
+        return None
+    y = s.values.astype(float)
+    ecarts, reels = [], []
+    for t in range(max(SEMAINES_MIN, len(y) - nb_tests), len(y)):
+        passe = y[:t]
+        lr = stats.linregress(np.arange(t, dtype=float), passe)
+        prevu = max(lr.intercept + lr.slope * t, 0) if lr.pvalue < 0.05 else passe.mean()
+        ecarts.append(abs(y[t] - prevu))
+        reels.append(y[t])
+    return float(np.sum(ecarts) / np.sum(reels) * 100) if np.sum(reels) > 0 else None
+

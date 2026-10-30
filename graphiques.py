@@ -51,6 +51,10 @@ def tendance(df, metrique, nom_m, est_taux):
 
 def par_groupe(t, col, nom_m, est_taux, titre):
     """Barres à partir d'un tableau COMPORTEMENT (index = valeur, colonnes median / count / confiance)."""
+    t = t.dropna(subset=["median"])
+    t = t[t.index.astype(str) != "non précisé"]
+    if len(t) < 2:
+        return None
     d = t.reset_index().rename(columns={t.index.name or "index": "groupe"})
     d["groupe"] = d["groupe"].astype(str)
     ch = alt.Chart(d).mark_bar(cornerRadiusEnd=4).encode(
@@ -66,7 +70,10 @@ def par_groupe(t, col, nom_m, est_taux, titre):
 def benchmark(bench, nom_m, est_taux):
     if bench is None or not len(bench):
         return None
-    d = bench.head(10).copy()
+    d = bench.dropna(subset=["médiane"]).head(10).copy()
+    d = d[~d["format"].astype(str).eq("non précisé")] if len(d[~d["format"].astype(str).eq("non précisé")]) >= 3 else d
+    if len(d) < 3:
+        return None
     d["segment"] = [f"{c} · {f}" if f != "tous formats" else c for c, f in zip(d["canal"], d["format"])]
     ch = alt.Chart(d).mark_bar(cornerRadiusEnd=4).encode(
         y=alt.Y("segment:N", sort="-x", title=None),

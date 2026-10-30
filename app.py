@@ -1185,7 +1185,7 @@ if page == "bord":
     st.markdown("### Pour aller plus loin")
     c1, c2, c3 = st.columns(3)
     with c1:
-        montrer_graphe("canal")
+        montrer_graphe("canal") or montrer_graphe("cout") or st.altair_chart(graphe_comp(CAMP, f"{NOM_M} médian par campagne"), width="stretch")
     with c2:
         montrer_graphe("sentiment") or montrer_graphe("benchmark")
     with c3:
@@ -1266,8 +1266,9 @@ if page == "mia":
             resume += f"La campagne <b>{meilleur}</b> tire les résultats vers le haut, tandis que <b>{faible}</b> est en retrait. "
         if tr is not None:
             resume += f"Sur le dernier mois, la tendance est à la <b>{'hausse' if tr >= 0 else 'baisse'} ({tr:+.0f} %)</b>. "
-        if ns["MAPE"] is not None:
-            resume += f"Le modèle de prévision se trompe en moyenne de {ns['MAPE']:.0f} % : ses chiffres sont des ordres de grandeur."
+        if ns.get("ERR_HEBDO") is not None:
+            resume += (f"J'ai testé mes prévisions sur les dernières semaines : elles se sont trompées de {ns['ERR_HEBDO']:.0f} % en moyenne sur les totaux hebdomadaires, "
+                       + ("ce qui est fiable pour un ordre de grandeur." if ns["ERR_HEBDO"] < ns["OBJECTIF_MAPE"] else "à lire comme des ordres de grandeur."))
         carte(resume, "ia")
         st.caption("Texte rédigé automatiquement à partir de vos chiffres, selon des règles explicables : rien n'est inventé.")
         c1, c2 = st.columns(2)
@@ -1296,7 +1297,7 @@ if page == "mia":
                 carte(f, "faible")
         c1, c2 = st.columns(2)
         with c1:
-            montrer_graphe("benchmark")
+            montrer_graphe("benchmark") or st.altair_chart(graphe_comp(CAMP, f"{NOM_M} médian par campagne"), width="stretch")
         with c2:
             montrer_graphe("sentiment")
 
@@ -1387,11 +1388,9 @@ if page == "mia":
             m[0].metric(f"{nom_cible} prévue", espace(pr))
             m[1].metric("Fourchette basse", espace(pr * ns["BORNES"][0]))
             m[2].metric("Fourchette haute", espace(pr * ns["BORNES"][1]))
-            ok = ns["MAPE"] < ns["OBJECTIF_MAPE"]
-            (st.success if ok else st.warning)(
-                f"Erreur moyenne historique du modèle : {ns['MAPE']:.0f} % (objectif < {ns['OBJECTIF_MAPE']} %). "
-                + ("Prévision fiable pour un ordre de grandeur." if ok else "Prévisions indicatives : plus de campagnes passées amélioreront le modèle.")
-                + " Estimation, pas promesse.")
+            st.info("Une publication isolée reste très variable : lisez surtout la fourchette (elle contient 80 % des cas passés) et fiez-vous aux totaux hebdomadaires pour décider."
+                    + (f" Mes prévisions hebdomadaires se sont trompées de {ns['ERR_HEBDO']:.0f} % lors du rétro-test." if ns.get("ERR_HEBDO") is not None else "")
+                    + " Estimation, pas promesse.")
 
     # --- 4. recommandations
     with s4:
@@ -1444,8 +1443,13 @@ if page == "mia":
         c1, c2 = st.columns(2)
         for c, col_, titre in ((c1, "format", "Par format"), (c2, "canal", "Par canal")):
             if col_ in comp:
-                t = comp[col_].reset_index().rename(columns={"median": f"médiane ({NOM_M})", "count": "publications"})
+                tt = comp[col_].dropna(subset=["median"])
+                tt = tt[tt.index.astype(str) != "non précisé"]
                 c.markdown(f"**{titre}**")
+                if len(tt) < 2:
+                    c.caption("Pas assez de données comparables dans vos fichiers pour ce classement.")
+                    continue
+                t = tt.reset_index().rename(columns={"median": f"médiane ({NOM_M})", "count": "publications"})
                 c.dataframe(t, hide_index=True, width="stretch")
 
         canal_i, fmt_i, jour_i, heure_i, ton_i, idees = idees_publications()
