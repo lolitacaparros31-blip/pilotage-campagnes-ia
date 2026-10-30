@@ -1,6 +1,6 @@
-# Pilotage de campagnes par l'IA (Streamlit)
+# Plateforme d'analyse de campagnes générée par IA (Streamlit)
 
-Importez vos exports CSV/Excel : tableau de bord, prévisions, simulateur, test A/B, commentaires, rapport HTML.
+Quatre espaces : **Tableau de bord**, **Campagnes**, **Assistant IA**, **Rapports**. La plateforme s'ouvre sur une démo (campagnes fictives d'un festival) ; on peut importer ses propres exports CSV/Excel dans le menu de gauche.
 **100 % gratuit. L'IA recommande, l'humain décide. Aucune donnée n'est inventée.**
 
 ## Lancer sur son ordinateur (privé)
@@ -21,7 +21,9 @@ Ne mettez JAMAIS vos fichiers de données dans le dépôt (le `.gitignore` les e
 ## Les fichiers
 | Fichier | Rôle |
 |---|---|
-| `app.py` | L'interface (onglets, boutons) |
+| `app.py` | L'interface : les 4 espaces, la comparaison des campagnes, l'assistant IA |
+| `.streamlit/config.toml` | Thème aux couleurs Pantone A/W 26-27 |
+| `NOTE_EXPLICATIVE.md` | Note explicative de l'épreuve |
 | `moteur_analyse.py` | Le calcul (identique au notebook Colab) |
 | `contexte.py` | Réglages, profils de campagne (`PROFILS`), lancement du moteur |
 | `prevision.py` | Prévisions : courbe, meilleurs créneaux, objectif atteignable |
@@ -32,6 +34,7 @@ Ne mettez JAMAIS vos fichiers de données dans le dépôt (le `.gitignore` les e
 | Reconnaître un nouvel export | `ALIAS` dans `moteur_analyse.py` |
 | Un nouvel indicateur | `kpis()` dans `moteur_analyse.py` |
 | Un nouveau sujet (ex. association) | `PROFILS` dans `contexte.py` |
+| Les noms des campagnes de démo | `CAMPAGNES_DEMO` dans `app.py` |
 | Changer la méthode de prévision | `prevision.py` |
 
 ## Limites

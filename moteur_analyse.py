@@ -342,18 +342,18 @@ else:
 
 
 #@title Tableau de bord final (HTML téléchargeable)
-PAL = ["#E6007E","#7C3AED","#F59E0B","#10B981","#3B82F6","#EF4444","#14B8A6","#8B5CF6"]
-ROSE, VIOLET, GRIS = "#E6007E", "#7C3AED", "#6B6780"
-plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 10.5, "axes.edgecolor": "#D9D6E5", "axes.labelcolor": GRIS, "xtick.color": GRIS, "ytick.color": GRIS})
+PAL = ["#5D9BCB","#9E2C6A","#7FBB9E","#755139","#D29380","#123955","#B98391","#646049"]   # palette Pantone A/W 26-27
+ROSE, VIOLET, GRIS = "#9E2C6A", "#123955", "#5B6470"
+plt.rcParams.update({"font.family": "DejaVu Sans", "font.size": 10.5, "axes.edgecolor": "#D6CEBF", "axes.labelcolor": GRIS, "xtick.color": GRIS, "ytick.color": GRIS})
 
 def fig_b64(fig):
     b = io.BytesIO(); fig.savefig(b, format="png", dpi=120, bbox_inches="tight", facecolor="white"); plt.close(fig)
     return base64.b64encode(b.getvalue()).decode()
 
 def habiller(ax, titre):
-    ax.set_title(titre, loc="left", fontsize=12, fontweight="bold", color="#1F1B2E", pad=10)
+    ax.set_title(titre, loc="left", fontsize=12, fontweight="bold", color="#123955", pad=10)
     for s in ["top", "right"]: ax.spines[s].set_visible(False)
-    ax.grid(axis="y", color="#EEEAF6", lw=.8); ax.set_axisbelow(True)
+    ax.grid(axis="y", color="#E8E1D3", lw=.8); ax.set_axisbelow(True)
 
 def fmt_pct(x): return f"{x*100:.1f} %"
 NOM_M = {"taux_conversion":"Taux de conversion","ctr":"CTR","taux_engagement":"Taux d'engagement","portee":"Portée","impressions":"Impressions","vues":"Vues"}.get(METRIQUE_PRINCIPALE, METRIQUE_PRINCIPALE)
@@ -367,7 +367,7 @@ t = COMPORTEMENT.get("canal")
 if t is not None:
     fig, ax = plt.subplots(figsize=(5.4, 3.4))
     vals = t["median"]; bars = ax.bar(vals.index.astype(str), vals.values, color=[PAL[i % len(PAL)] for i in range(len(vals))], width=.62)
-    for b, v in zip(bars, vals.values): ax.text(b.get_x()+b.get_width()/2, v, fm(v), ha="center", va="bottom", fontsize=8.5, color="#1F1B2E")
+    for b, v in zip(bars, vals.values): ax.text(b.get_x()+b.get_width()/2, v, fm(v), ha="center", va="bottom", fontsize=8.5, color="#123955")
     habiller(ax, f"{NOM_M} médian par canal"); plt.xticks(rotation=25, ha="right")
     GRAPHES.append((1, "canal", fig_b64(fig)))
 
@@ -387,9 +387,9 @@ if len(BENCH):
     b = BENCH.head(10).iloc[::-1]
     fig, ax = plt.subplots(figsize=(5.4, 3.4))
     labels = [f"{c} · {f}" if f != "tous formats" else c for c, f in zip(b["canal"], b["format"])]
-    ax.barh(labels, b["médiane"], color=[ROSE if c == "correcte" else "#F7A8D0" for c in b["confiance"]], height=.62)
+    ax.barh(labels, b["médiane"], color=[ROSE if c == "correcte" else "#D9B2C4" for c in b["confiance"]], height=.62)
     for i, (v, n) in enumerate(zip(b["médiane"], b["n"])): ax.text(v, i, f"  n={n}", va="center", fontsize=8, color=GRIS)
-    habiller(ax, "Benchmark par segment (rose clair = échantillon fragile)"); ax.grid(axis="x", color="#EEEAF6"); ax.grid(axis="y", visible=False)
+    habiller(ax, "Benchmark par segment (rose clair = échantillon fragile)"); ax.grid(axis="x", color="#E8E1D3"); ax.grid(axis="y", visible=False)
     GRAPHES.append((1, "benchmark", fig_b64(fig)))
 
 # 4) heatmap jour x heure
@@ -398,9 +398,9 @@ if "jour" in DF and "heure" in DF:
     hm = hm.reindex([j for j in ORDRE_JOURS if j in hm.index])
     if hm.shape[0] >= 2 and hm.shape[1] >= 2:
         fig, ax = plt.subplots(figsize=(5.4, 3.4))
-        im = ax.imshow(hm.values, cmap="RdPu", aspect="auto")
+        im = ax.imshow(hm.values, cmap=plt.matplotlib.colors.LinearSegmentedColormap.from_list("pantone", ["#F3ECE0","#D29380","#9E2C6A"]), aspect="auto")
         ax.set_xticks(range(hm.shape[1])); ax.set_xticklabels([f"{int(h)}h" for h in hm.columns]); ax.set_yticks(range(hm.shape[0])); ax.set_yticklabels(hm.index)
-        ax.set_title("Meilleurs créneaux : jour × heure", loc="left", fontsize=12, fontweight="bold", color="#1F1B2E", pad=10)
+        ax.set_title("Meilleurs créneaux : jour × heure", loc="left", fontsize=12, fontweight="bold", color="#123955", pad=10)
         for s_ in ax.spines.values(): s_.set_visible(False)
         plt.colorbar(im, ax=ax, fraction=.03, pad=.02)
         GRAPHES.append((1, "creneaux", fig_b64(fig)))
@@ -414,16 +414,16 @@ if "cpa" in DF and DF["cpa"].notna().any() and METRIQUE_PRINCIPALE in DF:
             ax.scatter(r["cpa"], r["perf"], s=60 + r["n"] * 8, color=PAL[i % len(PAL)], alpha=.85, edgecolor="white")
             ax.annotate(c, (r["cpa"], r["perf"]), textcoords="offset points", xytext=(8, 6), fontsize=8.5)
         ax.set_xlabel("Coût par action (plus bas = mieux)"); ax.set_ylabel(NOM_M)
-        habiller(ax, "Coût et performance par canal (haut-gauche = idéal)"); ax.grid(axis="x", color="#EEEAF6")
+        habiller(ax, "Coût et performance par canal (haut-gauche = idéal)"); ax.grid(axis="x", color="#E8E1D3")
         GRAPHES.append((1, "cout", fig_b64(fig)))
 
 # 6) sentiment
 if SENT is not None:
     fig, ax = plt.subplots(figsize=(5.4, 3.4))
     ordre = [k for k in ["positif", "neutre", "négatif"] if k in SENT.index]
-    ax.pie([SENT[k] for k in ordre], labels=[f"{k} {SENT[k]:.0f} %" for k in ordre], colors=[{"positif":"#10B981","neutre":"#C9C5DA","négatif":ROSE}[k] for k in ordre],
-           startangle=90, wedgeprops=dict(width=.38, edgecolor="white"), textprops=dict(fontsize=9, color="#1F1B2E"))
-    ax.set_title("Sentiment des commentaires", loc="left", fontsize=12, fontweight="bold", color="#1F1B2E")
+    ax.pie([SENT[k] for k in ordre], labels=[f"{k} {SENT[k]:.0f} %" for k in ordre], colors=[{"positif":"#7FBB9E","neutre":"#CFC6B6","négatif":"#884332"}[k] for k in ordre],
+           startangle=90, wedgeprops=dict(width=.38, edgecolor="white"), textprops=dict(fontsize=9, color="#123955"))
+    ax.set_title("Sentiment des commentaires", loc="left", fontsize=12, fontweight="bold", color="#123955")
     GRAPHES.append((1, "sentiment", fig_b64(fig)))
 
 # 7) A/B
@@ -437,14 +437,14 @@ if AB is not None:
 # 8) prévision
 if PREVISION is not None:
     fig, ax = plt.subplots(figsize=(5.4, 2.6))
-    ax.hlines(0, PREVISION["bas"], PREVISION["haut"], color="#F7A8D0", lw=18, capstyle="round")
+    ax.hlines(0, PREVISION["bas"], PREVISION["haut"], color="#D9B2C4", lw=18, capstyle="round")
     ax.scatter([PREVISION["valeur"]], [0], s=260, color=ROSE, zorder=3, edgecolor="white", linewidth=2)
     ax.text(PREVISION["valeur"], .22, f"{PREVISION['valeur']:,.0f}".replace(",", " "), ha="center", fontsize=12, fontweight="bold", color=ROSE)
     ax.text(PREVISION["bas"], -.28, f"{PREVISION['bas']:,.0f}".replace(",", " "), ha="center", fontsize=8.5, color=GRIS)
     ax.text(PREVISION["haut"], -.28, f"{PREVISION['haut']:,.0f}".replace(",", " "), ha="center", fontsize=8.5, color=GRIS)
     ax.set_ylim(-.6, .6); ax.set_yticks([])
     for s_ in ["top", "right", "left"]: ax.spines[s_].set_visible(False)
-    ax.set_title(f"Prévision « {PREVISION['cible']} » (fourchette 80 %)", loc="left", fontsize=12, fontweight="bold", color="#1F1B2E")
+    ax.set_title(f"Prévision « {PREVISION['cible']} » (fourchette 80 %)", loc="left", fontsize=12, fontweight="bold", color="#123955")
     GRAPHES.append((1, "prevision", fig_b64(fig)))
 
 # ---- cartes chiffres clés
@@ -497,22 +497,22 @@ lims_html = "".join(f"<li>{l}</li>" for l in limites())
 bandeau = '<div class="demo">Données fictives (démo)</div>' if DEMO_MODE else ""
 
 HTML_DASH = f"""<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Tableau de bord de campagne</title>
+<title>Rapport de campagne</title>
 <style>
-*{{box-sizing:border-box}} body{{margin:0;font-family:Arial,Helvetica,sans-serif;background:#F6F3FB;color:#1F1B2E}}
+*{{box-sizing:border-box}} body{{margin:0;font-family:Arial,Helvetica,sans-serif;background:#F3ECE0;color:#123955}}
 .wrap{{max-width:1100px;margin:0 auto;padding:0 16px 40px}}
-.hero{{background:linear-gradient(120deg,#E6007E,#7C3AED);color:#fff;padding:28px 24px;border-radius:0 0 22px 22px}}
+.hero{{background:linear-gradient(120deg,#123955,#9E2C6A);color:#fff;padding:28px 24px;border-radius:0 0 22px 22px}}
 .hero h1{{margin:0 0 6px;font-size:26px}} .hero p{{margin:0;opacity:.92;font-size:14px}}
-.demo{{display:inline-block;background:#FFF3C4;color:#7A5B00;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:bold;margin-bottom:8px}}
+.demo{{display:inline-block;background:#EFE6A8;color:#4A4320;padding:3px 10px;border-radius:99px;font-size:12px;font-weight:bold;margin-bottom:8px}}
 .cartes{{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin:-18px 0 18px}}
 .carte{{background:#fff;border-radius:16px;padding:14px 16px;box-shadow:0 4px 14px rgba(124,58,237,.10)}}
-.cv{{font-size:26px;font-weight:bold;color:#E6007E}} .cn{{font-size:13px;font-weight:bold;margin-top:2px}} .cs{{font-size:11px;color:#6B6780}}
+.cv{{font-size:26px;font-weight:bold;color:#9E2C6A}} .cn{{font-size:13px;font-weight:bold;margin-top:2px}} .cs{{font-size:11px;color:#5B6470}}
 .grille{{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:14px}}
 .graphe{{background:#fff;border-radius:16px;padding:10px;box-shadow:0 4px 14px rgba(124,58,237,.08)}} .graphe img{{width:100%;height:auto;display:block}}
 .bloc{{background:#fff;border-radius:16px;padding:16px 20px;margin-top:14px;box-shadow:0 4px 14px rgba(124,58,237,.08)}}
-.bloc h2{{margin:0 0 8px;font-size:16px;color:#7C3AED}} .bloc li{{margin:6px 0;font-size:14px;line-height:1.45}}
-.alerte{{background:#FDE8F3;border-left:6px solid #E6007E;padding:12px 16px;border-radius:12px;margin:14px 0;font-size:14px}}
-.note{{font-size:12px;color:#6B6780;margin-top:14px}}
+.bloc h2{{margin:0 0 8px;font-size:16px;color:#123955}} .bloc li{{margin:6px 0;font-size:14px;line-height:1.45}}
+.alerte{{background:#F3DDD6;border-left:6px solid #884332;padding:12px 16px;border-radius:12px;margin:14px 0;font-size:14px}}
+.note{{font-size:12px;color:#5B6470;margin-top:14px}}
 </style></head><body>
 <div class="hero"><div class="wrap" style="padding-bottom:0">{bandeau}<h1>Tableau de bord de campagne</h1>
 <p>{dt.date.today():%d/%m/%Y} · profil {PROFIL} · objectif {OBJECTIF} · {len(DF)} publications analysées</p></div></div>
@@ -520,7 +520,7 @@ HTML_DASH = f"""<!DOCTYPE html><html lang="fr"><head><meta charset="utf-8"><meta
 <div class="cartes">{cartes_html}</div>
 {ALERTE_BLOC}
 <div class="grille">{graph_html}</div>
-<div class="bloc"><h2>Recommandations <small style="color:#6B6780;font-weight:normal">(l'IA recommande, l'humain décide)</small></h2><ul>{recs_html}</ul></div>
+<div class="bloc"><h2>Recommandations <small style="color:#5B6470;font-weight:normal">(l'IA recommande, l'humain décide)</small></h2><ul>{recs_html}</ul></div>
 <div class="bloc"><h2>Limites et niveau de confiance</h2><ul>{lims_html}</ul></div>
 <p class="note">{FORMULE}. Benchmark : médiane de l'historique propre, par canal et format, à {AGE_COMPARAISON_H} h (± {TOLERANCE_AGE_H} h). Moins de {SEUIL_ECHANTILLON} publications = « fragile ».</p>
 </div></body></html>"""
