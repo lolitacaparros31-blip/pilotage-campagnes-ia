@@ -5,6 +5,7 @@ Quatre espaces : Tableau de bord, Campagnes, Assistant IA, Rapports.
 Principe : l'IA recommande, l'humain décide. Aucune donnée n'est inventée.
 """
 import re
+import math
 import base64
 import numpy as np
 import pandas as pd
@@ -78,6 +79,15 @@ section[data-testid="stSidebar"] [data-testid="stRadioOption"] p {{font-size:15p
 .prio {{background:#fff;border-radius:18px;padding:14px 18px;min-height:150px;box-shadow:0 4px 16px rgba(18,57,85,.07)}}
 .prio.fort {{border-left:6px solid {NEPTUNE}}} .prio.faible {{border-left:6px solid {SPICE}}} .prio.moyen {{border-left:6px solid {ACACIA}}}
 .prio-t {{font-family:{SERIF};font-weight:700;color:{POSEIDON};margin-bottom:4px}} .prio-n {{color:{FUCHSIA};font-weight:700;margin-right:6px}}
+.hero {{background:linear-gradient(120deg,{POSEIDON},#2C4F6B);color:#fff;border-radius:24px;padding:26px 30px;display:flex;gap:28px;align-items:center;min-height:210px;box-shadow:0 8px 26px rgba(18,57,85,.18)}}
+.hero .t {{font-family:{SERIF};font-size:28px;line-height:1.25;margin-bottom:10px;color:#fff}} .hero .lg {{font-size:14px;opacity:.92}}
+.hero .centre {{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:{SERIF};font-size:36px;color:#fff;line-height:1}} .hero .centre small {{font-family:Arial,sans-serif;font-size:11px;opacity:.85}}
+.alerte-card {{background:#fff;border-radius:24px;padding:22px 24px;min-height:210px;box-shadow:0 4px 16px rgba(18,57,85,.07)}}
+.alerte-card.faible {{border-left:7px solid {SPICE}}} .alerte-card.fort {{border-left:7px solid {NEPTUNE}}} .alerte-card.moyen {{border-left:7px solid {ACACIA}}}
+.alerte-card .e {{letter-spacing:.12em;text-transform:uppercase;font-size:11px;font-weight:700}} .alerte-card .g {{font-family:{SERIF};font-size:44px;margin:6px 0;color:{POSEIDON}}}
+.gauge {{height:8px;background:#EFE6D8;border-radius:9px;margin:14px 0 10px;position:relative}} .gauge i {{position:absolute;left:0;top:0;height:8px;border-radius:9px}} .gauge u {{position:absolute;left:50%;top:-3px;width:2px;height:14px;background:{POSEIDON};text-decoration:none}}
+.st-key-mia_bulle {{position:fixed !important;right:18px;bottom:88px;width:330px !important;z-index:999;background:#fff;border:1px solid #F1DCE7;border-radius:22px 22px 6px 22px;padding:14px 16px 8px;box-shadow:0 12px 32px rgba(158,44,106,.22)}}
+.st-key-mia_bulle p {{font-size:14px;line-height:1.45;color:{POSEIDON};margin:0 0 4px}} .st-key-mia_bulle button {{border:none !important;background:transparent !important;color:{GRIS} !important;padding:0 !important;min-height:0 !important;font-size:12px}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -448,13 +458,48 @@ def priorites():
     return items
 
 
+def donut_svg(vals, cols, r=58, sw=22):
+    tot = sum(vals) or 1
+    c = 2 * math.pi * r
+    cx = r + sw / 2
+    out, off = f'<svg width="{2 * r + sw}" height="{2 * r + sw}" viewBox="0 0 {2 * r + sw} {2 * r + sw}">', 0.0
+    for v, col in zip(vals, cols):
+        if v <= 0:
+            continue
+        d = v / tot * c
+        out += f'<circle cx="{cx}" cy="{cx}" r="{r}" fill="none" stroke="{col}" stroke-width="{sw}" stroke-dasharray="{d:.1f} {c - d:.1f}" stroke-dashoffset="{-off:.1f}" transform="rotate(-90 {cx} {cx})"/>'
+        off += d
+    return out + "</svg>"
+
+
 def carte_campagne_html(nom):
     r = CAMP.loc[nom]
     cle = statut_cle(r["Statut"])
-    pas = "".join(pastille(c) for c in canaux_de(nom))
-    return (f'<div class="cc {cle}"><div class="cc-t">{pas}<span class="cc-n">{nom}</span></div><span class="statut">{r["Statut"]}</span>'
-            f'<div class="cc-v">{fm(r["_perf"])}</div><div class="cc-s">{NOM_M} · {ec(r["Écart à la médiane"])} vs médiane · {int(r["Publications"])} publications</div>'
-            f'<div class="cc-r">{reco_campagne(nom)}</div></div>')
+    pas = "".join(pastille(c, 28) for c in canaux_de(nom))
+    ecart = r["Écart à la médiane"]
+    larg = 6 if pd.isna(ecart) else max(6, min(100, 50 + ecart))
+    couleur = {"fort": NEPTUNE, "moyen": ALL_ABOARD, "faible": SPICE}[cle]
+    return (f'<div class="cc {cle}" style="min-height:0"><div class="cc-t">{pas}<span class="cc-n">{nom}</span></div>'
+            f'<div class="cc-v" style="font-size:40px;margin-top:6px">{fm(r["_perf"])}</div><div class="cc-s">{NOM_M} · {ec(ecart)} vs médiane · {int(r["Publications"])} publications</div>'
+            f'<div class="gauge"><i style="width:{larg}%;background:{couleur}"></i><u></u></div><span class="statut">{r["Statut"]}</span></div>')
+
+
+def bulle_mia():
+    if len(CAMP) > 1:
+        b, w = CAMP.index[0], CAMP.index[-1]
+        eb, ew = CAMP.loc[b, "Écart à la médiane"], CAMP.loc[w, "Écart à la médiane"]
+        if pd.notna(eb) and pd.notna(ew) and eb >= 10 and ew <= -10:
+            return f"Bonne nouvelle : <b>{b}</b> performe ({ec(eb)}). <b>{w}</b> a besoin d'aide ({ec(ew)}) : on regarde ensemble ?"
+        if pd.notna(eb) and eb >= 10:
+            return f"Bonne nouvelle : <b>{b}</b> se détache ({ec(eb)}). Belle régularité !"
+        if pd.notna(ew) and ew <= -10:
+            return f"<b>{w}</b> est en retrait ({ec(ew)}). Pas de panique, on regarde ensemble ?"
+        return "Vos campagnes avancent de façon homogène. C'est rassurant !"
+    return "J'ai analysé votre campagne. Une question ? Je suis là."
+
+
+def fermer_bulle():
+    st.session_state["bulle_fermee"] = True
 
 
 res = prev.prevoir_serie(DF, CIBLE, 8)
@@ -641,28 +686,47 @@ chat_flottant()
 
 # ================================================================== A. TABLEAU DE BORD
 if page == "bord":
-    titre_page("Tableau de bord", f"{periode()} · {len(CAMP)} campagnes · {len(DF)} publications · indicateur suivi : {NOM_M} (objectif « {objectif} »)")
+    st.markdown(f'<div class="eyebrow">Lumen</div><h2 class="pt">Bonjour, voici l\'essentiel</h2><p class="ps">{periode()} · {len(CAMP)} campagnes · {len(DF)} publications · indicateur suivi : {NOM_M} (objectif « {objectif} »)</p>', unsafe_allow_html=True)
     if mode == "demo":
-        carte_mia("Bonjour, je suis Mia. Pour que j'analyse <b>vos</b> campagnes, importez vos fichiers dans le menu à gauche : sans fichier, je n'ai rien d'honnête à vous dire. "
-                  "En attendant, voici une <b>démonstration</b> avec des données fictives (le lancement d'un festival). Voici ce que je vous dirais :<br><br>" + message_mia(),
-                  titre="Mia, votre assistante · " + "démo")
+        carte("<b>Mode démonstration</b> : ces données sont fictives (lancement d'un festival). Importez vos fichiers dans le menu à gauche pour analyser vos propres campagnes.", "vigil")
+
+    n_f = int(CAMP["Statut"].str.startswith("🟢").sum())
+    n_b = int(CAMP["Statut"].str.startswith("🔴").sum())
+    n_m = len(CAMP) - n_f - n_b
+    if n_b == 0 and n_f:
+        titre_h = "Toutes vos campagnes<br>se portent bien."
+    elif n_b == 0:
+        titre_h = "Vos campagnes avancent<br>régulièrement."
+    elif n_f == 0:
+        titre_h = f"{n_b} campagne(s)<br>ont besoin de vous."
     else:
-        carte_mia("Bonjour ! J'ai analysé vos fichiers. " + message_mia())
-    st.button("Parler à Mia", on_click=aller, args=("mia",), type="primary")
+        titre_h = f"{n_f} campagne(s) performent,<br>{n_b} ont besoin de vous."
+    alerte_on = ns["SENT"] is not None and "ALERTE" in ns["ALERTE_TXT"]
+    h1, h2 = st.columns([2, 1])
+    h1.markdown(f'<div class="hero"><div style="position:relative">{donut_svg([n_f, n_m, n_b], [NEPTUNE, ALL_ABOARD, "#E8A898"])}<div class="centre">{len(CAMP)}<small>campagnes</small></div></div>'
+                f'<div><div class="t">{titre_h}</div><div class="lg"><span style="color:{NEPTUNE}">●</span> {n_f} au-dessus &nbsp; <span style="color:{ALL_ABOARD}">●</span> {n_m} dans la norme &nbsp; <span style="color:#E8A898">●</span> {n_b} en dessous</div></div></div>', unsafe_allow_html=True)
+    if alerte_on:
+        m_ = re.match(r"Négatifs sur 7 jours : (\S+ %)", ns["ALERTE_TXT"])
+        m2_ = re.search(r"semaine précédente : (\S+ %)", ns["ALERTE_TXT"])
+        h2.markdown(f'<div class="alerte-card faible"><div class="e" style="color:{SPICE}">Alerte e-réputation</div><div class="g">{m_.group(1) if m_ else ""}</div><div style="font-size:14px">de commentaires négatifs sur 7 jours{(" (contre " + m2_.group(1) + " la semaine précédente)") if m2_ else ""}.</div></div>', unsafe_allow_html=True)
+    elif ns["SENT"] is not None:
+        h2.markdown(f'<div class="alerte-card fort"><div class="e" style="color:{NEPTUNE}">Commentaires</div><div class="g">Stable</div><div style="font-size:14px">Aucune hausse inquiétante des commentaires négatifs.</div></div>', unsafe_allow_html=True)
+    else:
+        h2.markdown(f'<div class="alerte-card moyen"><div class="e" style="color:{GRIS}">Commentaires</div><div class="g">n/a</div><div style="font-size:14px">Aucun commentaire importé : ajoutez un CSV pour suivre la réputation.</div></div>', unsafe_allow_html=True)
+
+    st.markdown("### Vos campagnes")
+    noms_c = list(CAMP.index)
+    for i in range(0, len(noms_c), 4):
+        cols = st.columns(4)
+        for c, nom in zip(cols, noms_c[i:i + 4]):
+            with c:
+                st.markdown(carte_campagne_html(nom), unsafe_allow_html=True)
+                st.button("Ouvrir la fiche", key=f"fiche_{nom}", on_click=aller, args=("camp", nom))
 
     st.markdown("### Vos 3 priorités")
     cols = st.columns(3)
     for i, (c, (titre, cle, txt)) in enumerate(zip(cols, priorites()), 1):
         c.markdown(f'<div class="prio {cle}"><div class="prio-t"><span class="prio-n">{i}</span>{titre}</div>{txt}</div>', unsafe_allow_html=True)
-
-    st.markdown("### Vos campagnes")
-    noms_c = list(CAMP.index)
-    for i in range(0, len(noms_c), 3):
-        cols = st.columns(3)
-        for c, nom in zip(cols, noms_c[i:i + 3]):
-            with c:
-                st.markdown(carte_campagne_html(nom), unsafe_allow_html=True)
-                st.button("Ouvrir la fiche", key=f"fiche_{nom}", on_click=aller, args=("camp", nom))
 
     st.markdown("### Chiffres clés")
     afficher_cartes()
@@ -678,6 +742,11 @@ if page == "bord":
         montrer_graphe("canal")
     with c2:
         montrer_graphe("creneaux") or montrer_graphe("benchmark")
+
+    if not st.session_state.get("bulle_fermee"):
+        with st.container(key="mia_bulle"):
+            st.markdown(f"**Mia** {humeur()}<br>{bulle_mia()}", unsafe_allow_html=True)
+            st.button("Fermer", key="fermer_bulle", on_click=fermer_bulle)
 
 # ================================================================== B. CAMPAGNES
 if page == "camp":
