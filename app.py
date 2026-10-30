@@ -131,6 +131,17 @@ def aller(page, fiche=None):
         st.session_state["fiche"] = fiche
 
 
+EXEMPLES = Path(__file__).with_name("assets") / "exemples"
+
+
+def charger_exemple():
+    st.session_state["exemple"] = True
+
+
+def quitter_exemple():
+    st.session_state["exemple"] = False
+
+
 MODELE_CSV = (
     "date,canal,campagne,format,impressions,portee,clics,likes,commentaires,partages,budget,conversions,revenu\n"
     "2026-03-02 18:00,instagram,Lancement festival,carrousel,12500,9800,310,540,32,41,150,18,540\n"
@@ -155,6 +166,12 @@ with st.sidebar:
     fichiers_up = st.file_uploader("Déposer mes fichiers CSV ou Excel", type=["csv", "xls", "xlsx"], accept_multiple_files=True)
     if fichiers_up:
         st.success(f"{len(fichiers_up)} fichier(s) analysé(s).")
+    elif EXEMPLES.exists():
+        if st.session_state.get("exemple"):
+            st.info("Exemple chargé : Google Ads, TikTok et Instagram (données fictives).")
+            st.button("Revenir à la démonstration", on_click=quitter_exemple, width="stretch")
+        else:
+            st.button("Charger l'exemple : Google Ads, TikTok, Instagram", on_click=charger_exemple, width="stretch")
     with st.popover("Quel format de fichier ?", width="stretch"):
         st.markdown("Un export **CSV ou Excel** avec une ligne par publication. Au minimum : le **réseau** (canal), la **date** et les **impressions** (ou la portée).")
         st.markdown("Les noms français et anglais des exports courants sont reconnus (Meta, TikTok, Google Ads, LinkedIn…). Une information manquante est signalée, jamais devinée.")
@@ -192,6 +209,9 @@ def calculer(fichiers_t, demo, reglages_t, comm):
 
 
 fichiers = tuple(sorted((f.name, f.getvalue()) for f in (fichiers_up or [])))
+EXEMPLE_ACTIF = (not fichiers) and bool(st.session_state.get("exemple")) and EXEMPLES.exists()
+if EXEMPLE_ACTIF:
+    fichiers = tuple(sorted((f.name, f.read_bytes()) for f in EXEMPLES.glob("*.csv")))
 mode = "import" if fichiers else "demo"
 comm_bytes = comm_up.getvalue() if comm_up is not None else None
 
@@ -844,34 +864,32 @@ def chat_flottant():
     h = st.session_state.get("chat_mia", [])
     with st.container(key="mia_chat"):
         with st.popover("Discuter avec Mia"):
-            st.markdown(f'<div class="mia-nom">Mia, votre assistante {humeur()}</div>', unsafe_allow_html=True)
-            boite = st.container(height=330, border=False)
+            st.markdown(f'<div class="mia-nom" style="font-size:17px">Mia, votre assistante {humeur()}</div>', unsafe_allow_html=True)
+            boite = st.container(height=400, border=False)
             with boite:
                 with st.chat_message("assistant", avatar=str(MIA_IMG) if MIA_B64 else humeur()):
-                    st.markdown("Bonjour, c'est Mia ! Posez-moi une question sur vos campagnes, ou choisissez une idée ci-dessous."
-                                + ("" if mode == "import" else " (Je réponds ici avec les données fictives de la démo.)"))
-                for r, t in h[-8:]:
+                    st.markdown("Bonjour, c'est Mia ! Cliquez sur une question rapide, ou écrivez la vôtre : je réponds à partir de vos chiffres."
+                                + ("" if (mode == "import") else " (Ici, les données fictives de la démo.)"))
+                if len(h) > 6:
+                    st.caption("Messages plus anciens : onglet « Assistant IA », volet « Poser une question ».")
+                for r, t in h[-6:]:
                     with st.chat_message("user" if r == "user" else "assistant", avatar=None if r == "user" else (str(MIA_IMG) if MIA_B64 else humeur())):
                         st.markdown(t, unsafe_allow_html=True)
             if page != "mia":
                 traiter_attente(boite)
-            if len(h) < 2:
+            with st.container(key="mia_rapides"):
                 c = st.columns(2)
                 for i, sg in enumerate(SUGGESTIONS):
                     c[i % 2].button(sg, key=f"sg_{i}", on_click=envoyer, args=(sg,), width="stretch")
-            else:
-                with st.expander("Questions rapides"):
-                    for i, sg in enumerate(SUGGESTIONS):
-                        st.button(sg, key=f"sgx_{i}", on_click=envoyer, args=(sg,), width="stretch")
             with st.form("form_mia", clear_on_submit=True, border=False):
-                st.text_input("Votre message", key="msg_mia", placeholder="Écrivez à Mia…", label_visibility="collapsed")
+                st.text_input("Votre message", key="msg_mia", placeholder="Ou écrivez votre question à Mia…", label_visibility="collapsed")
                 f1, f2 = st.columns([3, 2])
                 f1.form_submit_button("Envoyer", on_click=lambda: envoyer(st.session_state.get("msg_mia")), type="primary", width="stretch")
                 f2.form_submit_button("Effacer", on_click=vider_chat, width="stretch")
-            if CLE_GEMINI and st.session_state.get("gemini_err") and st.session_state.get("ia_detail"):
-                st.caption("Détail technique : " + str(st.session_state["ia_detail"]))
             if CLE_GEMINI and st.session_state.get("gemini_err"):
                 st.warning("Mia n'a pas pu utiliser son mode avancé : " + RAISONS.get(st.session_state["gemini_err"], "service indisponible") + ". Elle répond avec ses règles.")
+                if st.session_state.get("ia_detail"):
+                    st.caption("Détail technique : " + str(st.session_state["ia_detail"]))
             st.caption("Mia propose, vous décidez." + (" Mia est propulsée par l'IA." if CLE_GEMINI else " Réponses calculées à partir de vos chiffres."))
 
 
@@ -881,7 +899,8 @@ st.markdown(f"""<style>
 .st-key-mia_chat button:hover {{background:#B13580 !important}}
 .st-key-mia_chat button p, .st-key-mia_chat button span {{color:#fff !important;font-weight:600}}
 .st-key-mia_chat button::before {{content:"";width:38px;height:38px;border-radius:50%;margin-right:10px;border:2px solid #fff;background:url(data:image/jpeg;base64,{MIA_B64}) center/cover}}
-div[data-testid="stPopoverBody"] {{width:min(440px,92vw);border-radius:20px}}
+div[data-testid="stPopoverBody"] {{width:min(560px,94vw);border-radius:22px;max-height:88vh}}
+.st-key-mia_rapides button {{min-height:34px;padding:2px 8px;font-size:12.5px;line-height:1.2}}
 section[data-testid="stSidebar"] {{z-index:100 !important}}
 </style>""", unsafe_allow_html=True)
 chat_flottant()
@@ -892,6 +911,8 @@ chat_flottant()
 # ================================================================== A. TABLEAU DE BORD
 if page == "bord":
     st.markdown(f'<div class="eyebrow">Lumen</div><h2 class="pt">Bonjour, voici l\'essentiel</h2><p class="ps">{periode()} · {len(CAMP)} campagnes · {len(DF)} publications · {"un indicateur adapté à chaque campagne" if HETERO else "indicateur suivi : " + NOM_M} (objectif « {objectif} »)</p>', unsafe_allow_html=True)
+    if EXEMPLE_ACTIF:
+        carte("<b>Exemple chargé</b> : ces trois exports (Google Ads, TikTok, Instagram) sont fictifs. Cliquez sur « Revenir à la démonstration » dans le menu à gauche pour retrouver le festival.", "vigil")
     if mode == "demo":
         carte("<b>Mode démonstration</b> : ces données sont fictives (lancement d'un festival). Importez vos fichiers dans le menu à gauche pour analyser vos propres campagnes.", "vigil")
 

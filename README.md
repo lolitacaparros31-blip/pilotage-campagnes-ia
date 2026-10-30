@@ -53,3 +53,6 @@ Seuls des chiffres agrégés sont envoyés à Gemini, jamais les fichiers import
 - Protections contre l'abus : 15 questions par visite, 400 appels par jour au total, 2,5 s minimum entre deux messages, questions limitées à 500 caractères, consigne anti-détournement.
 - Seuls des chiffres agrégés sont envoyés, jamais les fichiers importés.
 - Bon réflexe : dans Google AI Studio, limiter la clé à l'API « Generative Language » et fixer un quota ; en cas de doute, la supprimer et en créer une nouvelle.
+
+## Exemple fourni
+Le dossier `assets/exemples/` contient 3 exports **fictifs** (Google Ads, TikTok, Instagram), utilisés par le bouton « Charger l'exemple » du menu. Aucune donnée réelle n'y figure. Les exceptions du `.gitignore` sont limitées à ce dossier.

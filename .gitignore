@@ -8,3 +8,7 @@ __pycache__/
 .streamlit/secrets.toml
 .env
 *.key
+
+# Exemple : fausses données fournies par l'utilisatrice (aucune donnée réelle)
+!assets/exemples/
+!assets/exemples/*.csv
