@@ -5,6 +5,7 @@ Quatre espaces : Tableau de bord, Campagnes, Assistant IA, Rapports.
 Principe : l'IA recommande, l'humain décide. Aucune donnée n'est inventée.
 """
 import re
+import base64
 import numpy as np
 import pandas as pd
 import streamlit as st
@@ -24,6 +25,13 @@ ACACIA = "#DACD65"     # vigilance : à surveiller, échantillon fragile, foncti
 SPICE = "#884332"      # alerte : difficulté, en dessous de la moyenne
 GRIS = "#5B6470"
 PAL = [ALL_ABOARD, FUCHSIA, NEPTUNE, "#755139", "#D29380", POSEIDON, "#B98391", "#646049"]
+
+from pathlib import Path
+MIA_IMG = Path(__file__).with_name("assets") / "mia.jpg"
+try:
+    MIA_B64 = base64.b64encode(MIA_IMG.read_bytes()).decode()
+except Exception:
+    MIA_B64 = ""
 
 NOM_PLATEFORME = "Plateforme d'analyse de campagnes générée par IA"
 
@@ -56,7 +64,8 @@ section[data-testid="stSidebar"] [data-testid="stRadioOption"] > div > div:first
 section[data-testid="stSidebar"] [data-testid="stRadioOption"] p {{font-size:15px;font-weight:600;color:{POSEIDON}}}
 /* Mia */
 .mia {{display:flex;gap:16px;background:#fff;border-radius:22px;padding:18px 22px;margin:8px 0 16px;box-shadow:0 6px 22px rgba(158,44,106,.12);border:1px solid #F1DCE7}}
-.mia-av {{flex:0 0 56px;height:56px;border-radius:50%;background:linear-gradient(135deg,#F1DCE7,#E7C3D6);display:flex;align-items:center;justify-content:center;font-size:32px}}
+.mia-av {{position:relative;flex:0 0 72px;height:72px;border-radius:50%;background:#F1DCE7 center/cover no-repeat;border:3px solid #fff;box-shadow:0 3px 10px rgba(158,44,106,.25)}}
+.mia-av .mood {{position:absolute;right:-6px;bottom:-4px;font-size:20px;background:#fff;border-radius:50%;width:30px;height:30px;display:flex;align-items:center;justify-content:center;box-shadow:0 2px 6px rgba(18,57,85,.2)}}
 .mia-nom {{font-family:{SERIF};font-weight:700;color:{FUCHSIA};font-size:15px;margin-bottom:4px}} .mia-txt {{color:{POSEIDON};line-height:1.55;font-size:15px}}
 /* cartes de campagnes et priorités */
 .cc {{background:#fff;border-radius:20px;padding:16px 18px;box-shadow:0 4px 16px rgba(18,57,85,.07);min-height:250px;border-top:5px solid {ALL_ABOARD}}}
@@ -411,7 +420,7 @@ def message_mia():
 
 
 def carte_mia(texte, mood=None, titre="Mia, votre assistante"):
-    st.markdown(f'<div class="mia"><div class="mia-av">{mood or humeur()}</div><div><div class="mia-nom">{titre}</div><div class="mia-txt">{texte}</div></div></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="mia"><div class="mia-av" style="background-image:url(data:image/jpeg;base64,{MIA_B64})"><span class="mood">{mood or humeur()}</span></div><div><div class="mia-nom">{titre}</div><div class="mia-txt">{texte}</div></div></div>', unsafe_allow_html=True)
 
 
 def priorites():
@@ -876,12 +885,12 @@ if page == "mia":
             if q:
                 st.session_state["pill_deja"] = q
             for r, t in histo:
-                with st.chat_message("user" if r == "user" else "assistant", avatar=None if r == "user" else humeur()):
+                with st.chat_message("user" if r == "user" else "assistant", avatar=None if r == "user" else (str(MIA_IMG) if MIA_B64 else humeur())):
                     st.markdown(t)
             if question and quota_ok():
                 with st.chat_message("user", avatar=None):
                     st.markdown(question)
-                with st.chat_message("assistant", avatar=humeur()):
+                with st.chat_message("assistant", avatar=(str(MIA_IMG) if MIA_B64 else humeur())):
                     with st.spinner("Gemini réfléchit…"):
                         txt, err = demander_gemini(histo[-6:] + [("user", question)])
                     if txt:
@@ -898,7 +907,7 @@ if page == "mia":
             if q:
                 with st.chat_message("user", avatar=None):
                     st.write(q)
-                with st.chat_message("assistant", avatar=humeur()):
+                with st.chat_message("assistant", avatar=(str(MIA_IMG) if MIA_B64 else humeur())):
                     st.markdown(reponses[q], unsafe_allow_html=True)
                     st.caption("Réponse fondée sur vos données. À vous de décider.")
 
