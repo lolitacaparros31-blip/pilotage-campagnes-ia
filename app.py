@@ -172,6 +172,15 @@ def retirer_commentaires():
     st.session_state["commentaires"] = None
 
 
+def visite_terminee():
+    st.session_state["visite_faite"] = True
+
+
+def revoir_visite():
+    st.session_state["visite_faite"] = False
+    st.session_state["page"] = "bord"
+
+
 def changer_mode():
     st.session_state["page"] = "donnees"            # on bascule sur la page de choix de la démo, ou d'import des fichiers
 
@@ -240,6 +249,7 @@ with st.sidebar:
         seuil = st.number_input("Nombre minimum de publications pour être fiable", 5, 200, 20, help="En dessous, Mia signale un résultat « fragile ».")
         mape = st.number_input("Erreur de prévision acceptable (%)", 5, 100, 20)
         alerte = st.number_input("Alerter si les commentaires négatifs dépassent (%)", 10, 90, 40)
+    st.button("Revoir la visite guidée", on_click=revoir_visite, key="revoir_visite", width="stretch")
     st.caption("100 % gratuit · vos fichiers ne sont pas enregistrés par l'appli.")
 
 REGLAGES = dict(PROFIL=profil, OBJECTIF=objectif, BASE_ENGAGEMENT=base, NB_ABONNES=int(nb_abonnes),
@@ -390,6 +400,7 @@ def synthese_campagnes(d):
     hetero = len({v[0] for v in kp.values()}) > 1
     t["_kpi"] = pd.Series({n: v[1] for n, v in kp.items()})
     t["_taux"] = pd.Series({n: v[2] for n, v in kp.items()})
+    t["_col"] = pd.Series({n: v[0] for n, v in kp.items()})
     t["_perf"] = pd.Series({n: sous[kp[n][0]].median() for n, sous in g})
     if hetero:
         ecart = pd.Series({n: evolution(sous, kp[n][0]) for n, sous in g}).reindex(t.index)
@@ -669,6 +680,58 @@ def donut_svg(vals, cols, r=58, sw=22):
     return out + "</svg>"
 
 
+def serie_semaine(nom):
+    """Médiane hebdomadaire de l'indicateur de la campagne (None si trop peu de dates)."""
+    col = CAMP.loc[nom, "_col"]
+    if "date" not in DF or col not in DF:
+        return None
+    d = DF[DF["campagne"] == nom].dropna(subset=["date", col])
+    if len(d) < 6:
+        return None
+    x = d.set_index("date")[col].sort_index().resample("W").median().dropna()
+    return x if len(x) >= 4 else None
+
+
+def spark_svg(nom, couleur, w=110, h=34):
+    x = serie_semaine(nom)
+    if x is None:
+        return ""
+    v = x.values[-12:]
+    lo, hi = float(min(v)), float(max(v))
+    pts = " ".join(f"{k * w / (len(v) - 1):.1f},{h - 3 - (val - lo) / (hi - lo + 1e-9) * (h - 8):.1f}" for k, val in enumerate(v))
+    return f'<svg width="{w}" height="{h}" style="flex:0 0 auto"><polyline points="{pts}" fill="none" stroke="{couleur}" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>'
+
+
+def alertes_proactives():
+    """Mia repère les campagnes qui baissent (ou montent) trois semaines de suite."""
+    out = []
+    for nom in CAMP.index:
+        x = serie_semaine(nom)
+        if x is None or len(x) < 4:
+            continue
+        v = list(x.values[-4:])
+        if v[0] == 0:
+            continue
+        evo = (v[-1] / v[0] - 1) * 100
+        if all(v[i + 1] < v[i] for i in range(3)):
+            out.append(("faible", f"<b>{nom}</b> : {nk(nom)} en baisse depuis 3 semaines de suite ({evo:+.0f} %). Mieux vaut agir avant que l'écart se creuse."))
+        elif all(v[i + 1] > v[i] for i in range(3)):
+            out.append(("fort", f"<b>{nom}</b> : {nk(nom)} en hausse depuis 3 semaines de suite ({evo:+.0f} %). C'est le bon moment pour capitaliser."))
+    return out[:3]
+
+
+def explication_calcul():
+    comp = ("Vos campagnes ne mesurent pas toutes la même chose : chacune est suivie avec l'indicateur le plus adapté dont je dispose (conversion, engagement, portée ou vues). "
+            "Je la compare à **sa propre évolution** : médiane des 4 dernières semaines contre les 4 précédentes. " if HETERO else
+            f"Chaque campagne est comparée à la **médiane de toutes vos publications** pour l'indicateur « {NOM_M} ». ")
+    return (comp + "**Vert** à partir de +10 %, **brun-rouge** à partir de −10 %, **bleu** entre les deux.\n\n"
+            f"- **Résultat « fragile »** : moins de {SEUIL} publications, je reste prudente.\n"
+            "- **Courbes** : médiane hebdomadaire de l'indicateur de la campagne.\n"
+            "- **Alertes** : trois semaines de suite dans le même sens.\n"
+            "- **Prévisions** : tendance des semaines passées avec une fourchette à 80 % ; refusées en dessous de 8 semaines de données.\n"
+            "- **Mes textes** sont rédigés par des règles explicables à partir de vos chiffres : rien n'est inventé.")
+
+
 def carte_campagne_html(nom):
     r = CAMP.loc[nom]
     cle = statut_cle(r["Statut"])
@@ -677,7 +740,7 @@ def carte_campagne_html(nom):
     larg = 6 if pd.isna(ecart) else max(6, min(100, 50 + ecart))
     couleur = {"fort": NEPTUNE, "moyen": ALL_ABOARD, "faible": SPICE}[cle]
     return (f'<div class="cc {cle}" style="min-height:0"><div class="cc-t">{pas}<span class="cc-n">{nom}</span></div>'
-            f'<div class="cc-v" style="font-size:40px;margin-top:6px">{fk(nom)}</div><div class="cc-s">{r["_kpi"]} · {ec(ecart)} {LIB_ECART} · {int(r["Publications"])} publications</div>'
+            f'<div style="display:flex;justify-content:space-between;align-items:flex-end"><div class="cc-v" style="font-size:40px;margin-top:6px">{fk(nom)}</div>{spark_svg(nom, couleur)}</div><div class="cc-s">{r["_kpi"]} · {ec(ecart)} {LIB_ECART} · {int(r["Publications"])} publications</div>'
             f'<div class="gauge"><i style="width:{larg}%;background:{couleur}"></i><u></u></div><span class="statut">{r["Statut"]}</span></div>')
 
 
@@ -1011,6 +1074,11 @@ if page == "bord":
         c_b1.button("Passer en mode Utilisateur", on_click=passer_utilisateur, key="vers_util")
         c_b2.button("Changer de démo", on_click=aller, args=("donnees",), key="chg_demo2")
 
+    if not st.session_state.get("visite_faite"):
+        st.markdown(f'<div class="mia"><div class="mia-av" style="background-image:url(data:image/jpeg;base64,{MIA_B64})"><span class="mood">😊</span></div><div><div class="mia-nom">Première visite ? Je vous fais le tour en 4 points</div>'
+                    f'<div class="mia-txt"><b>① Tableau de bord</b> : l\'essentiel en 10 secondes, avec vos priorités. &nbsp; <b>② Campagnes</b> : comparez et ouvrez une fiche. &nbsp; '
+                    f'<b>③ Assistant IA</b> : posez-moi vos questions, par boutons ou en texte libre. &nbsp; <b>④ Rapports</b> et <b>⑤ Démo et exports</b> : partagez vos résultats.</div></div></div>', unsafe_allow_html=True)
+        st.button("Compris, merci Mia", on_click=visite_terminee, key="visite_ok", type="primary")
     n_f = int(CAMP["Statut"].str.startswith("🟢").sum())
     n_b = int(CAMP["Statut"].str.startswith("🔴").sum())
     n_m = len(CAMP) - n_f - n_b
@@ -1060,6 +1128,13 @@ if page == "bord":
         st.markdown(f'<div class="mia-carte"><div class="h"><span class="mia-mini" style="background-image:url(data:image/jpeg;base64,{MIA_B64})"></span><span class="n">Mia vous dit {humeur()}</span></div><div class="m">« {bulle_mia()} »</div></div>', unsafe_allow_html=True)
     with st.expander("Lire le message complet de Mia"):
         st.markdown(message_mia(), unsafe_allow_html=True)
+    with st.expander("Comment Mia a calculé ça ?"):
+        st.markdown(explication_calcul())
+    _alertes = alertes_proactives()
+    if _alertes:
+        st.markdown("### Mia a repéré")
+        for _style, _txt in _alertes:
+            carte(_txt, _style)
 
     st.markdown("### Chiffres clés")
     afficher_cartes()
@@ -1153,7 +1228,9 @@ if page == "mia":
             montrer_graphe("tendance")
         with c2:
             montrer_graphe("cout") or montrer_graphe("canal")
-        with st.expander("Comment l'IA a-t-elle calculé ? (journal détaillé)"):
+        with st.expander("Comment Mia a calculé ça ?"):
+            st.markdown(explication_calcul())
+        with st.expander("Journal détaillé du calcul"):
             st.markdown(f"Formule d'engagement : `{ns['FORMULE']}`")
             st.code(journal or "(rien à afficher)")
 
@@ -1212,7 +1289,32 @@ if page == "mia":
                         delta=None if r["ecart_pct"] is None else f"{r['ecart_pct']:+.0f} % vs actuel", delta_color="off")
             st.caption(f"Fourchette de la période : {espace(r['bas'])} à {espace(r['haut'])} (estimation prudente). La décision reste humaine.")
 
-        st.markdown("##### C. Simulateur « et si ? » : prévoir une nouvelle publication")
+        st.markdown("##### C. Et si je déplaçais du budget ?")
+        if "budget" not in DF or CIBLE not in DF:
+            st.info("Il faut le budget et le résultat dans vos fichiers pour simuler un déplacement de budget.")
+        else:
+            gb = DF.groupby("campagne").agg(b=("budget", "sum"), r=(CIBLE, "sum"))
+            gb = gb[(gb["b"] > 0) & (gb["r"] > 0)]
+            if len(gb) < 2:
+                st.info(f"Il faut le budget et le résultat ({nom_cible}) d'au moins deux campagnes pour simuler. Ici, une seule en a (ou aucune).")
+            else:
+                sc1, sc2, sc3 = st.columns(3)
+                src = sc1.selectbox("Retirer du budget à", list(gb.index), key="sc_src")
+                dst = sc2.selectbox("Pour l'ajouter à", [x for x in gb.index if x != src], key="sc_dst")
+                pct = sc3.slider("Part du budget déplacée (%)", 5, 50, 20, key="sc_pct")
+                rend = gb["r"] / gb["b"]
+                dep = float(gb.loc[src, "b"]) * pct / 100
+                gain = dep * float(rend[dst] - rend[src])
+                avant = float(gb["r"].sum())
+                mm = st.columns(3)
+                mm[0].metric("Budget déplacé", f"{espace(dep)} €")
+                mm[1].metric(f"{nom_cible.capitalize()} avant", espace(avant))
+                mm[2].metric(f"{nom_cible.capitalize()} après (estimé)", espace(avant + gain), delta=f"{gain / avant * 100:+.1f} %")
+                (st.success if gain > 0 else st.warning)(
+                    f"En déplaçant {pct} % du budget de {src} vers {dst}, Mia estime {'un gain' if gain > 0 else 'une perte'} d'environ {espace(abs(gain))} {nom_cible} sur une période comparable.")
+                st.caption("Estimation linéaire : chaque euro rapporterait autant que par le passé. En pratique les rendements baissent quand on augmente un budget : testez d'abord à petite échelle. Mia propose, vous décidez.")
+
+        st.markdown("##### D. Simulateur « et si ? » : prévoir une nouvelle publication")
         if ns["MODELE"] is None:
             st.info(f"Pas de simulation possible : {ns['ERR']}")
         else:
