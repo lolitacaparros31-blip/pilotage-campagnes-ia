@@ -9,7 +9,7 @@ import pandas as pd
 POSEIDON, EGRET, FUCHSIA = "#123955", "#F3ECE0", "#9E2C6A"
 ALL_ABOARD, NEPTUNE, ACACIA, SPICE, GRIS = "#5D9BCB", "#7FBB9E", "#DACD65", "#884332", "#5B6470"
 PAL = [ALL_ABOARD, FUCHSIA, NEPTUNE, "#755139", "#D29380", POSEIDON, "#B98391", "#646049"]
-STATUTS = alt.Scale(domain=["Au-dessus", "Dans la norme", "En dessous"], range=[NEPTUNE, ALL_ABOARD, SPICE])
+COUL_STATUT = {"Au-dessus": NEPTUNE, "En progression": NEPTUNE, "Dans la norme": ALL_ABOARD, "Stable": ALL_ABOARD, "En dessous": SPICE, "En baisse": SPICE}
 
 
 def habiller(ch, titre="", hauteur=300):
@@ -29,6 +29,12 @@ def tendance(df, metrique, nom_m, est_taux):
         return None
     cols = [c for c in ["date", metrique, "campagne", "canal", "format"] if c in df]
     d = df.dropna(subset=["date", metrique])[cols].sort_values("date").copy()
+    if len(d) > 250:        # beaucoup de lignes : courbe hebdomadaire lisible plutôt qu'un nuage de points
+        h = d.set_index("date")[metrique].resample("W").median().dropna().reset_index()
+        ch = alt.Chart(h).mark_line(color=POSEIDON, strokeWidth=2.6, point=alt.OverlayMarkDef(color=FUCHSIA, size=60)).encode(
+            x=alt.X("date:T", title=None), y=alt.Y(f"{metrique}:Q", title=nom_m, axis=alt.Axis(format=_fmt(est_taux))),
+            tooltip=[alt.Tooltip("date:T", title="Semaine du", format="%d/%m/%Y"), alt.Tooltip(f"{metrique}:Q", title=f"{nom_m} (médiane)", format=_fmt(est_taux))])
+        return habiller(ch, f"{nom_m} par semaine (médiane)", hauteur=400)
     d["tendance"] = d[metrique].rolling(7, min_periods=3).median()
     zoom = alt.selection_interval(bind="scales", encodings=["x"])
     base = alt.Chart(d).encode(x=alt.X("date:T", title=None))
@@ -118,11 +124,12 @@ def campagnes(t, col, titre, est_taux):
     d = t[[col, "Publications", "Statut"]].dropna().reset_index().rename(columns={col: "valeur", t.index.name or "index": "campagne"})
     d["statut"] = d["Statut"].str.replace(r"^\S+\s|\s\(fragile\)$", "", regex=True)
     d["fragile"] = np.where(d["Statut"].str.contains("fragile"), "oui (à confirmer)", "non")
-    fmt = ".1%" if est_taux else (",.2f" if d["valeur"].abs().max() < 100 else ",.0f")
+    pres = list(dict.fromkeys(d["statut"]))
+    fmt = ".1%" if est_taux else (",.0f" if "Évolution" in titre else (",.2f" if d["valeur"].abs().max() < 100 else ",.0f"))
     barres = alt.Chart(d).mark_bar(cornerRadiusEnd=4).encode(
         y=alt.Y("campagne:N", sort="-x", title=None, axis=alt.Axis(labelLimit=240)),
         x=alt.X("valeur:Q", title=None, axis=alt.Axis(format=fmt)),
-        color=alt.Color("statut:N", scale=STATUTS, title="Statut"),
+        color=alt.Color("statut:N", scale=alt.Scale(domain=list(pres), range=[COUL_STATUT.get(x, GRIS) for x in pres]), title="Statut"),
         tooltip=[alt.Tooltip("campagne:N", title="Campagne"), alt.Tooltip("valeur:Q", title=titre.split(" par ")[0], format=fmt),
                  alt.Tooltip("Publications:Q"), alt.Tooltip("statut:N", title="Statut"), alt.Tooltip("fragile:N", title="Échantillon fragile")])
     med = alt.Chart(pd.DataFrame({"m": [d["valeur"].median()]})).mark_rule(color=GRIS, strokeDash=[4, 4]).encode(

@@ -42,6 +42,45 @@ _MOTEUR = Path(__file__).with_name("moteur_analyse.py").read_text(encoding="utf-
 _BASE = dict(globals())
 
 
+CANAUX_CONNUS = {"instagram": "instagram", "tiktok": "tiktok", "google": "google ads", "facebook": "facebook", "linkedin": "linkedin",
+                 "youtube": "youtube", "newsletter": "newsletter", "mailing": "newsletter", "twitter": "x", "snap": "snapchat"}
+NOMS_CANAL = {"canal", "plateforme", "platform", "channel", "réseau", "reseau", "source"}
+
+
+def preparer_fichiers(fichiers):
+    """Si un export n'a pas de colonne « canal » (ex. un fichier par réseau), on la déduit du nom du fichier.
+    Les données ne sont pas modifiées : on ajoute seulement une colonne."""
+    sortie = {}
+    NOMS_FORMAT = {"format", "type_contenu", "media_type", "type", "type_de_publication"}
+    tous = {}
+    for nom, contenu in (fichiers or {}).items():
+        try:
+            tous[nom] = {str(x).strip().lower().replace(" ", "_") for x in (pd.read_excel(io.BytesIO(contenu)) if nom.lower().endswith(("xls", "xlsx")) else pd.read_csv(io.BytesIO(contenu), sep=None, engine="python")).columns}
+        except Exception:
+            tous[nom] = set()
+    un_format = any(v & NOMS_FORMAT for v in tous.values())
+    for nom, contenu in (fichiers or {}).items():
+        try:
+            t = pd.read_excel(io.BytesIO(contenu)) if nom.lower().endswith(("xls", "xlsx")) else pd.read_csv(io.BytesIO(contenu), sep=None, engine="python")
+            cols = {str(c).strip().lower().replace(" ", "_") for c in t.columns}
+            modif = False
+            if un_format and not (cols & NOMS_FORMAT):
+                t["format"] = "non précisé"
+                modif = True
+            if not (cols & NOMS_CANAL):
+                bas = nom.lower()
+                canal = next((v for k, v in CANAUX_CONNUS.items() if k in bas), Path(nom).stem.split("-")[-1].replace("_", " ").strip().lower())
+                t["canal"] = canal
+                modif = True
+            if modif:
+                contenu = t.to_csv(index=False).encode("utf-8")
+                nom = Path(nom).stem + ".csv"
+        except Exception:
+            pass          # fichier illisible : le moteur le signalera
+        sortie[nom] = contenu
+    return sortie
+
+
 def analyser(fichiers, demo, reglages, commentaires_csv=None):
     """Exécute le moteur. Retourne (espace de noms avec tous les résultats, journal texte)."""
     ns = dict(_BASE)
@@ -49,7 +88,7 @@ def analyser(fichiers, demo, reglages, commentaires_csv=None):
     ns.update(reglages)
     ns["P"] = PROFILS[ns["PROFIL"]]
     ns["DEMO_MODE"] = bool(demo)
-    ns["FICHIERS"] = dict(fichiers or {})
+    ns["FICHIERS"] = dict(fichiers or {}) if demo else preparer_fichiers(fichiers)
     ns["COMM_BRUT"] = pd.read_csv(io.BytesIO(commentaires_csv), sep=None, engine="python") if commentaires_csv else None
     buf = io.StringIO()
     try:

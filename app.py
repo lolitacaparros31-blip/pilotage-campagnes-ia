@@ -213,26 +213,58 @@ METRIQUE = ns["METRIQUE_PRINCIPALE"]
 NOM_M = ns["NOM_M"]
 fm = ns["fm"]
 SEUIL = ns["SEUIL_ECHANTILLON"]
+HEURE_OK = "heure" in DF and DF["heure"].nunique() > 1      # exports sans heure : on ne parle pas de créneau horaire
 
 # Campagnes : colonne « campagne » si l'export la contient, sinon une campagne par canal.
 # En démo : trois à six campagnes fictives pour le lancement d'un festival (exemple du sujet).
 CAMPAGNES_DEMO = {"instagram": "Notoriété · Instagram", "tiktok": "Public jeune · TikTok", "linkedin": "Partenaires · LinkedIn",
                   "facebook": "Communauté · Facebook", "youtube": "Teasers vidéo · YouTube", "newsletter": "Billetterie · Newsletter"}
 col_camp = next((c for c in DF.columns if str(c).lower() in ("campagne", "campaign", "campaign_name", "nom_campagne")), None)
+CANAL_LIB = {"google ads": "Google Ads", "tiktok": "TikTok", "instagram": "Instagram", "facebook": "Facebook", "linkedin": "LinkedIn",
+             "youtube": "YouTube", "newsletter": "Newsletter"}
 if col_camp:
-    DF["campagne"] = DF[col_camp].astype(str)
+    DF["campagne"] = [(f"{CANAL_LIB.get(str(k), str(k).capitalize())} · {v}" if pd.notna(v) and str(v).strip() and str(v).lower() != "nan"
+                       else CANAL_LIB.get(str(k), str(k).capitalize())) for k, v in zip(DF["canal"], DF[col_camp])]
 elif mode == "demo":
     DF["campagne"] = DF["canal"].map(CAMPAGNES_DEMO).fillna(DF["canal"].astype(str))
 else:
-    DF["campagne"] = DF["canal"].astype(str).str.capitalize()
+    DF["campagne"] = DF["canal"].astype(str).map(lambda k: CANAL_LIB.get(k, k.capitalize()))
 
 # ------------------------------------------------------------------ calculs d'affichage par campagne
 TAUX = {"ctr": "CTR", "taux_conversion": "Taux de conversion", "taux_engagement": "Taux d'engagement", "cpa": "Coût / action (€)", "roas": "ROAS"}
 VOLUMES = {"impressions": "Impressions", "portee": "Portée", "clics": "Clics", "conversions": "Conversions", "budget": "Budget (€)", "revenu": "Revenu (€)"}
 
 
+AUTRES_KPI = [("taux_conversion", "Taux de conversion", True), ("taux_engagement", "Taux d'engagement", True), ("ctr", "CTR", True),
+              ("portee", "Portée", False), ("vues", "Vues", False), ("impressions", "Impressions", False)]
+
+
+def kpi_de(sous):
+    """Indicateur de la campagne : celui de l'objectif s'il est renseigné, sinon le meilleur indicateur disponible."""
+    for col, nom, taux in [(METRIQUE, NOM_M, ns["EST_TAUX"])] + AUTRES_KPI:
+        if col in sous and sous[col].notna().sum() >= 3:
+            return col, nom, taux
+    return METRIQUE, NOM_M, ns["EST_TAUX"]
+
+
+def evolution(sous, col):
+    """Médiane des 4 dernières semaines contre les 4 précédentes, pour comparer des campagnes d'indicateurs différents."""
+    if "date" not in sous or col not in sous:
+        return np.nan
+    x = sous.dropna(subset=["date", col]).set_index("date")[col].sort_index()
+    if len(x) < 6:
+        return np.nan
+    fin = x.index.max()
+    recent = x[x.index > fin - pd.Timedelta(days=28)]
+    avant = x[(x.index <= fin - pd.Timedelta(days=28)) & (x.index > fin - pd.Timedelta(days=56))]
+    if len(recent) < 3 or len(avant) < 3 or avant.median() == 0:
+        return np.nan
+    return (recent.median() / avant.median() - 1) * 100
+
+
 def synthese_campagnes(d):
-    """Volumes = sommes ; taux = médianes par publication (même règle que le tableau de bord)."""
+    """Volumes = sommes ; taux = médianes par publication. Si les campagnes n'ont pas le même indicateur (ex. conversion, portée, vues),
+    chacune est suivie avec le sien et comparée à sa propre évolution."""
     g = d.groupby("campagne")
     t = pd.DataFrame({"Publications": g.size()})
     if "canal" in d:
@@ -243,21 +275,30 @@ def synthese_campagnes(d):
     for c, nom in TAUX.items():
         if c in d and d[c].notna().any():
             t[nom] = g[c].median()
-    ref = d[METRIQUE].median()
-    perf = g[METRIQUE].median()
-    t["_perf"] = perf
-    ecart = (perf / ref - 1) * 100 if ref else perf * np.nan
+    kp = {n: kpi_de(sous) for n, sous in g}
+    hetero = len({v[0] for v in kp.values()}) > 1
+    t["_kpi"] = pd.Series({n: v[1] for n, v in kp.items()})
+    t["_taux"] = pd.Series({n: v[2] for n, v in kp.items()})
+    t["_perf"] = pd.Series({n: sous[kp[n][0]].median() for n, sous in g})
+    if hetero:
+        ecart = pd.Series({n: evolution(sous, kp[n][0]) for n, sous in g}).reindex(t.index)
+        libs, neutre = ["🟢 En progression", "🔴 En baisse"], "🟠 Stable"
+    else:
+        ref = d[METRIQUE].median()
+        ecart = (t["_perf"] / ref - 1) * 100 if ref else t["_perf"] * np.nan
+        libs, neutre = ["🟢 Au-dessus", "🔴 En dessous"], "🟠 Dans la norme"
     t["Écart à la médiane"] = ecart
-    t["Statut"] = np.select([ecart >= 10, ecart <= -10], ["🟢 Au-dessus", "🔴 En dessous"], "🟠 Dans la norme")
+    t["Statut"] = np.select([ecart >= 10, ecart <= -10], libs, neutre)
     t.loc[t["Publications"] < SEUIL, "Statut"] = t["Statut"] + " (fragile)"
-    return t.sort_values("_perf", ascending=False)
+    return t.sort_values("Écart à la médiane", ascending=False, na_position="last"), hetero
 
 
-CAMP = synthese_campagnes(DF)
+CAMP, HETERO = synthese_campagnes(DF)
+LIB_ECART = "sur 4 semaines" if HETERO else "vs médiane"
 
 
 def tableau_affichage(t):
-    v = t.drop(columns=["_perf"]).copy()
+    v = t.drop(columns=[c for c in t.columns if str(c).startswith("_")]).copy()
     for nom in VOLUMES.values():
         if nom in v:
             v[nom] = v[nom].map(espace)
@@ -266,7 +307,8 @@ def tableau_affichage(t):
             v[nom] = v[nom].map(lambda x, c=c: "-" if pd.isna(x) else (f"{x:.2f}" if c in ("cpa", "roas") else f"{x * 100:.1f} %"))
     v["Écart à la médiane"] = v["Écart à la médiane"].map(lambda x: "-" if pd.isna(x) else f"{x:+.0f} %")
     cols = ["Statut", "Écart à la médiane"] + [c for c in v.columns if c not in ("Statut", "Écart à la médiane")]
-    return v[cols]
+    v = v[cols]
+    return v.rename(columns={"Écart à la médiane": "Évolution (4 sem.)"}) if HETERO else v
 
 
 def serie_mensuelle_campagnes(d, col, camps, taux):
@@ -275,6 +317,14 @@ def serie_mensuelle_campagnes(d, col, camps, taux):
         return None
     g = d.set_index("date").groupby("campagne")[col].resample("MS")
     return (g.median() if taux else g.sum()).unstack(0)
+
+
+def graphe_comp(t, titre):
+    if HETERO:
+        d = t.copy()
+        d["Évolution (%)"] = d["Écart à la médiane"]
+        return gr.campagnes(d, "Évolution (%)", "Évolution sur 4 semaines par campagne (pointillé = médiane)", False)
+    return gr.campagnes(t, "_perf", titre, ns["EST_TAUX"])
 
 
 def afficher_cartes():
@@ -324,8 +374,8 @@ def points_forts_difficultes():
     forts, faibles = [], []
     if len(CAMP) > 1:
         b, w = CAMP.index[0], CAMP.index[-1]
-        forts.append(f"<b>{b}</b> est la campagne la plus performante ({NOM_M.lower()} médian : {fm(CAMP.loc[b, '_perf'])}, {CAMP.loc[b, 'Écart à la médiane']:+.0f} % vs médiane).")
-        faibles.append(f"<b>{w}</b> est la campagne la plus faible ({NOM_M.lower()} médian : {fm(CAMP.loc[w, '_perf'])}, {CAMP.loc[w, 'Écart à la médiane']:+.0f} % vs médiane).")
+        forts.append(f"<b>{b}</b> est la campagne qui progresse le mieux ({nk(b)} : {fk(b)}, {ec(CAMP.loc[b, 'Écart à la médiane'])} {LIB_ECART})." if HETERO else f"<b>{b}</b> est la campagne la plus performante ({NOM_M.lower()} médian : {fk(b)}, {ec(CAMP.loc[b, 'Écart à la médiane'])} vs médiane).")
+        faibles.append(f"<b>{w}</b> est la campagne qui recule le plus ({nk(w)} : {fk(w)}, {ec(CAMP.loc[w, 'Écart à la médiane'])} {LIB_ECART})." if HETERO else f"<b>{w}</b> est la campagne la plus faible ({NOM_M.lower()} médian : {fk(w)}, {ec(CAMP.loc[w, 'Écart à la médiane'])} vs médiane).")
     comp = ns["COMPORTEMENT"]
     if "format" in comp and len(comp["format"]) > 1:
         f = comp["format"]
@@ -356,11 +406,11 @@ def idees_publications():
     canal = comp["canal"].index[0] if "canal" in comp else "instagram"
     fmt = comp["format"].index[0] if "format" in comp else "image"
     jour = comp["jour"].index[0] if "jour" in comp else "Mardi"
-    heure = int(comp["heure"].index[0]) if "heure" in comp else 18
+    heure = int(comp["heure"].index[0]) if ("heure" in comp and HEURE_OK) else (18 if "heure" not in comp else None)
     ton = ns["P"]["ton"]
     sujet = "le festival" if mode == "demo" else "votre offre"
     return canal, fmt, jour, heure, ton, [
-        f"**Accroche « coulisses »** ({fmt} sur {canal}, {jour} {heure} h) : « J-10 ! On vous emmène dans les coulisses de {sujet}. Qui sera là ? » + appel à commenter.",
+        f"**Accroche « coulisses »** ({fmt} sur {canal}, {qd(jour, heure)}) : « J-10 ! On vous emmène dans les coulisses de {sujet}. Qui sera là ? » + appel à commenter.",
         f"**Preuve sociale** ({fmt}) : 3 avis ou réactions du public, puis « Rejoignez-les : lien en bio ».",
         f"**Question à la communauté** ({canal}) : « Votre moment préféré de l'an dernier ? » pour relancer l'engagement.",
         f"**Rappel d'action** (la veille au soir) : « Dernières places, réservez avant minuit » : un seul message clair, un seul lien.",
@@ -375,13 +425,14 @@ _SVG = {
     "linkedin": '<rect width="24" height="24" rx="6" fill="#0A66C2"/><text x="12" y="17" font-size="12" font-weight="700" fill="#fff" text-anchor="middle" font-family="Arial">in</text>',
     "facebook": '<rect width="24" height="24" rx="6" fill="#1877F2"/><text x="13.5" y="20" font-size="19" font-weight="700" fill="#fff" text-anchor="middle" font-family="Arial">f</text>',
     "youtube": '<rect width="24" height="24" rx="6" fill="#E62117"/><path d="M9.5 8v8l7-4z" fill="#fff"/>',
+    "google": '<rect width="24" height="24" rx="6" fill="#fff" stroke="#DADCE0"/><text x="12" y="17.5" font-size="15" font-weight="700" text-anchor="middle" font-family="Arial" fill="#4285F4">G</text>',
     "newsletter": f'<rect width="24" height="24" rx="6" fill="{POSEIDON}"/><rect x="5" y="7" width="14" height="10" rx="2" fill="none" stroke="#fff" stroke-width="1.6"/><path d="M5.5 8.5l6.5 5 6.5-5" fill="none" stroke="#fff" stroke-width="1.6"/>',
 }
 
 
 def pastille(canal, t=26):
     c = str(canal).lower()
-    corps = _SVG.get(c) or f'<rect width="24" height="24" rx="6" fill="{GRIS}"/><text x="12" y="16.5" font-size="12" font-weight="700" fill="#fff" text-anchor="middle" font-family="Arial">{c[:1].upper()}</text>'
+    corps = next((_SVG[k] for k in _SVG if k in c), None) or f'<rect width="24" height="24" rx="6" fill="{GRIS}"/><text x="12" y="16.5" font-size="12" font-weight="700" fill="#fff" text-anchor="middle" font-family="Arial">{c[:1].upper()}</text>'
     return f'<span class="reseau" title="{c.capitalize()}"><svg viewBox="0 0 24 24" width="{t}" height="{t}">{corps}</svg></span>'
 
 
@@ -391,6 +442,20 @@ def canaux_de(nom):
 
 def statut_cle(statut):
     return "fort" if statut.startswith("🟢") else ("faible" if statut.startswith("🔴") else "moyen")
+
+
+def fk(nom):
+    """Valeur de l'indicateur d'une campagne, avec le bon format."""
+    r = CAMP.loc[nom]
+    return "n/a" if pd.isna(r["_perf"]) else (f"{r['_perf'] * 100:.1f} %" if r["_taux"] else espace(r["_perf"]))
+
+
+def nk(nom):
+    return str(CAMP.loc[nom, "_kpi"]).lower()
+
+
+def qd(jour, heure):
+    return f"{jour} vers {heure} h" if heure is not None else f"{jour}"
 
 
 def ec(x):
@@ -430,14 +495,14 @@ def message_mia():
     if len(CAMP) > 1:
         b, w = CAMP.index[0], CAMP.index[-1]
         eb, ew = CAMP.loc[b, "Écart à la médiane"], CAMP.loc[w, "Écart à la médiane"]
-        vb, vw = fm(CAMP.loc[b, "_perf"]), fm(CAMP.loc[w, "_perf"])
+        vb, vw = fk(b), fk(w)
         if pd.notna(eb) and pd.notna(ew) and eb >= 10 and ew <= -10:
-            parts.append(f"Bonne nouvelle : votre campagne <b>{b}</b> performe ({NOM_M.lower()} {vb}, {eb:+.0f} % vs médiane), et je tiens à vous en féliciter. "
-                         f"<b>{w}</b> a besoin d'aide ({vw}, {ew:+.0f} %), mais rien d'irrattrapable : j'ai déjà quelques pistes.")
+            parts.append(f"Bonne nouvelle : votre campagne <b>{b}</b> performe ({nk(b)} {vb}, {eb:+.0f} % {LIB_ECART}), et je tiens à vous en féliciter. "
+                         f"<b>{w}</b> a besoin d'aide ({nk(w)} {vw}, {ew:+.0f} %), mais rien d'irrattrapable : j'ai déjà quelques pistes.")
         elif pd.notna(eb) and eb >= 10:
-            parts.append(f"Bonne nouvelle : <b>{b}</b> se détache ({NOM_M.lower()} {vb}, {eb:+.0f} % vs médiane) et aucune campagne ne décroche. Belle régularité !")
+            parts.append(f"Bonne nouvelle : <b>{b}</b> se détache ({nk(b)} {vb}, {eb:+.0f} % {LIB_ECART}) et aucune campagne ne décroche. Belle régularité !")
         elif pd.notna(ew) and ew <= -10:
-            parts.append(f"Soyons honnêtes : <b>{w}</b> est en retrait ({NOM_M.lower()} {vw}, {ew:+.0f} % vs médiane). Ce n'est pas une fatalité, regardons ensemble comment la relancer.")
+            parts.append(f"Soyons honnêtes : <b>{w}</b> est en retrait ({nk(w)} {vw}, {ew:+.0f} % {LIB_ECART}). Ce n'est pas une fatalité, regardons ensemble comment la relancer.")
         else:
             parts.append("Vos campagnes avancent de façon homogène : aucune ne décroche, et c'est plutôt rassurant.")
     else:
@@ -463,12 +528,12 @@ def priorites():
         items.append(("À traiter en premier", "faible", f"Attention : {alerte_courte()} Vérifiez les faits avant de répondre : Mia vous aide à préparer la suite."))
     elif len(bas):
         w = bas.index[-1]
-        items.append(("À traiter en premier", "faible", f"<b>{w}</b> est en retrait ({fm(bas.loc[w, '_perf'])}). {reco_campagne(w)}"))
+        items.append(("À traiter en premier", "faible", f"<b>{w}</b> est en retrait ({nk(w)} {fk(w)}). {reco_campagne(w)}"))
     else:
         items.append(("À surveiller", "moyen", "Aucune alerte aujourd'hui. Gardez un œil sur la tendance."))
     if len(haut):
         b = haut.index[0]
-        items.append(("À amplifier", "fort", f"<b>{b}</b> performe ({fm(haut.loc[b, '_perf'])}, {ec(haut.loc[b, 'Écart à la médiane'])} vs médiane). {reco_campagne(b)}"))
+        items.append(("À amplifier", "fort", f"<b>{b}</b> progresse ({nk(b)} {fk(b)}, {ec(haut.loc[b, 'Écart à la médiane'])} {LIB_ECART}). {reco_campagne(b)}"))
     else:
         items.append(("À amplifier", "moyen", "Aucune campagne ne se détache encore : testez un nouveau format pour trouver ce qui fonctionne."))
     fr = CAMP[CAMP["Publications"] < SEUIL]
@@ -501,7 +566,7 @@ def carte_campagne_html(nom):
     larg = 6 if pd.isna(ecart) else max(6, min(100, 50 + ecart))
     couleur = {"fort": NEPTUNE, "moyen": ALL_ABOARD, "faible": SPICE}[cle]
     return (f'<div class="cc {cle}" style="min-height:0"><div class="cc-t">{pas}<span class="cc-n">{nom}</span></div>'
-            f'<div class="cc-v" style="font-size:40px;margin-top:6px">{fm(r["_perf"])}</div><div class="cc-s">{NOM_M} · {ec(ecart)} vs médiane · {int(r["Publications"])} publications</div>'
+            f'<div class="cc-v" style="font-size:40px;margin-top:6px">{fk(nom)}</div><div class="cc-s">{r["_kpi"]} · {ec(ecart)} {LIB_ECART} · {int(r["Publications"])} publications</div>'
             f'<div class="gauge"><i style="width:{larg}%;background:{couleur}"></i><u></u></div><span class="statut">{r["Statut"]}</span></div>')
 
 
@@ -601,6 +666,28 @@ def _nettoyer(texte):
     return re.sub(r"AIza[0-9A-Za-z_\-]{20,}", "***", t)
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def modeles_disponibles(cle):
+    """Demande à Google quels modèles rapides cette clé peut utiliser (évite de deviner un nom périmé)."""
+    import requests
+    try:
+        r = requests.get("https://generativelanguage.googleapis.com/v1beta/models?pageSize=200", headers={"x-goog-api-key": cle}, timeout=(4, 8))
+        if r.status_code != 200:
+            return []
+        noms = []
+        for m in r.json().get("models", []):
+            n = str(m.get("name", "")).replace("models/", "")
+            if "generateContent" in m.get("supportedGenerationMethods", []) and "flash" in n and not re.search(r"image|tts|live|audio|embedding|thinking|exp|preview|robotics|computer|vision", n):
+                noms.append(n)
+
+        def tri(n):
+            v = re.findall(r"(\d+(?:\.\d+)?)", n)
+            return (-(float(v[0]) if v else 0), "lite" in n, n)
+        return sorted(noms, key=tri)[:3]
+    except Exception:
+        return []
+
+
 def demander_gemini(messages):
     """messages = [(rôle 'user'|'model', texte)]. Retourne (texte, None) ou (None, code d'erreur). Le détail technique ne sort jamais à l'écran."""
     import requests
@@ -612,16 +699,20 @@ def demander_gemini(messages):
     corps = {
         "system_instruction": {"parts": [{"text": CONSIGNE + "\n\nDONNÉES :\n" + contexte_ia()}]},
         "contents": [{"role": r, "parts": [{"text": str(t)[:1500]}]} for r, t in messages],
-        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 800},
+        "generationConfig": {"temperature": 0.4, "maxOutputTokens": 700},
     }
     debut, code = time.time(), "indisponible"
-    for modele in dict.fromkeys([MODELE_GEMINI, "gemini-flash-latest", "gemini-2.5-flash-lite"]):
-        reste = 40 - (time.time() - debut)
-        if reste < 6:
+    for modele in dict.fromkeys(list(modeles_disponibles(CLE_GEMINI)) + [MODELE_GEMINI, "gemini-flash-latest"]):
+        reste = 22 - (time.time() - debut)
+        if reste < 4:
             break
+        if "2.5" in modele and "pro" not in modele:
+            corps["generationConfig"]["thinkingConfig"] = {"thinkingBudget": 0}     # pas de longue réflexion : réponse en 2 à 4 s
+        else:
+            corps["generationConfig"].pop("thinkingConfig", None)
         try:
             rep = requests.post(f"https://generativelanguage.googleapis.com/v1beta/models/{modele}:generateContent",
-                                headers={"x-goog-api-key": CLE_GEMINI, "Content-Type": "application/json"}, json=corps, timeout=(5, min(22, reste)))
+                                headers={"x-goog-api-key": CLE_GEMINI, "Content-Type": "application/json"}, json=corps, timeout=(4, min(14, reste)))
             data = rep.json()
             if rep.status_code == 200:
                 parts = (data.get("candidates") or [{}])[0].get("content", {}).get("parts", [])
@@ -632,6 +723,7 @@ def demander_gemini(messages):
                 continue
             msg = _nettoyer(data.get("error", {}).get("message", ""))
             print(f"[mia] IA {modele} HTTP {rep.status_code} : {msg[:160]}", file=sys.stderr)   # visible seulement dans les journaux de l'app
+            st.session_state["ia_detail"] = f"{modele} · HTTP {rep.status_code} · {msg[:140]}"
             if rep.status_code == 429:
                 return None, "quota"
             if rep.status_code in (401, 403) or (rep.status_code == 400 and "key" in msg.lower()):
@@ -639,6 +731,7 @@ def demander_gemini(messages):
             code = "indisponible"
         except requests.exceptions.Timeout:
             code = "delai"
+            st.session_state["ia_detail"] = f"{modele} · délai dépassé"
         except Exception as e:
             print(f"[mia] IA {modele} : {type(e).__name__}", file=sys.stderr)
             code = "indisponible"
@@ -666,7 +759,7 @@ def _prevision_texte():
             f"(fourchette {espace(pr['bas'].head(4).sum())} à {espace(pr['haut'].head(4).sum())}). Confiance {res['confiance']} : c'est une estimation, pas une promesse.")
 
 
-def reponse_regles(q):
+def reponse_regles(q, defaut=True):
     """Réponses de Mia construites à partir de vos chiffres (sans IA générative). Rien n'est inventé."""
     t = q.lower()
     forts, faibles = points_forts_difficultes()
@@ -679,7 +772,7 @@ def reponse_regles(q):
     if has("qui es", "qui êtes", "ton nom", "votre nom"):
         return "Je suis Mia, l'assistante IA de Lumen. Je lis vos chiffres, je vous explique et je vous propose des pistes : c'est toujours vous qui décidez."
     if has("publier", "poster", "créneau", "heure", "quand", "jour"):
-        return f"D'après vos données, le meilleur moment observé est le <b>{jour_i} vers {heure_i} h</b>, en format <b>{fmt_i}</b>. Attention : ce créneau repose parfois sur peu de publications, testez-le avant de vous y fier."
+        return f"D'après vos données, le meilleur moment observé est <b>{qd(jour_i, heure_i)}</b>, en format <b>{fmt_i}</b>. Attention : ce créneau repose parfois sur peu de publications, testez-le avant de vous y fier."
     if has("budget", "coût", "cout", "cpa", "roas", "argent", "dépens", "investir"):
         return next((r.replace("<b>", "").replace("</b>", "") for r in ns["recommandations"]() if "arbitrer" in r or "Coût" in r), "Je n'ai pas de données de coût dans vos fichiers : ajoutez une colonne « budget » pour que je vous conseille.")
     if has("prévi", "prevo", "futur", "prochain", "semaine", "objectif", "avenir"):
@@ -688,6 +781,17 @@ def reponse_regles(q):
         return ns["ALERTE_TXT"] if ns["SENT"] is not None else "Je n'ai reçu aucun commentaire à analyser. Importez un CSV de commentaires (menu de gauche) et je vous dirai comment réagit votre public."
     if has("format", "contenu", "idée", "idee", "texte", "rédig", "post"):
         return f"Le format qui fonctionne le mieux chez vous est <b>{fmt_i}</b>. Dans « Assistant IA > Améliorer contenus et canaux », je vous propose aussi des idées de publications."
+    if has("arrêter", "arreter", "stopper", "supprimer", "couper", "abandonner", "retirer"):
+        return (faibles[0] + " Avant d'arrêter quoi que ce soit, confirmez avec un test : c'est vous qui décidez.") if faibles else "Je ne vois aucune campagne à arrêter pour le moment."
+    if has("augmenter", "booster", "amplifier", "renforcer", "miser"):
+        return (forts[0] + " C'est la meilleure piste pour y mettre un peu plus d'énergie.") if forts else "Je n'ai pas encore de campagne qui se détache assez."
+    if has("résumé", "resume", "synthèse", "synthese", "bilan", "situation", "essentiel", "où en", "ou en"):
+        return message_mia()
+    if has("conseil", "recommand", "que faire", "quoi faire", "améliorer", "ameliorer", "optimiser", "idée", "idee"):
+        recs = [r.replace("<b>", "").replace("</b>", "") for r in ns["recommandations"]()][:3]
+        return "Voici mes 3 premières pistes : " + " ".join(f"({i}) {r}" for i, r in enumerate(recs, 1))
+    if has("alerte", "danger", "crise", "bad buzz"):
+        return ns["ALERTE_TXT"] if ns["SENT"] is not None else "Aucune alerte : je n'ai pas de commentaires à surveiller pour le moment."
     if has("meilleur", "mieux", "performe", "réussi", "reussi", "fort", "bravo", "bien"):
         return forts[0] if forts else "Je n'ai pas assez de campagnes pour en désigner une."
     if has("problème", "probleme", "faible", "pire", "difficult", "aide", "redress", "mauvais", "inquiet"):
@@ -695,8 +799,10 @@ def reponse_regles(q):
     for nom in CAMP.index:
         if nom.lower() in t or any(c in t for c in canaux_de(nom)):
             r = CAMP.loc[nom]
-            return (f"<b>{nom}</b> : {NOM_M.lower()} médian {fm(r['_perf'])} ({ec(r['Écart à la médiane'])} vs médiane, {int(r['Publications'])} publications). Statut : {r['Statut']}. {reco_campagne(nom)}")
-    return "Je ne suis pas sûre de bien comprendre. Essayez par exemple : « Quelle campagne pose problème ? », « Quand publier ? » ou le nom d'un réseau (TikTok, Instagram…)." + ("" if CLE_GEMINI else " Avec son mode avancé, Mia pourrait répondre à des questions plus libres.")
+            return (f"<b>{nom}</b> : {nk(nom)} {fk(nom)} ({ec(r['Écart à la médiane'])} {LIB_ECART}, {int(r['Publications'])} publications). Statut : {r['Statut']}. {reco_campagne(nom)}")
+    if not defaut:
+        return None
+    return "Je n'ai pas tout à fait saisi votre question, mais voici l'essentiel de la situation : " + message_mia() + "<br><br>Vous pouvez essayer : « Quelle campagne pose problème ? », « Quand publier ? » ou le nom d'un réseau (TikTok, Instagram…)."
 
 
 def envoyer(question):
@@ -705,16 +811,33 @@ def envoyer(question):
         return
     h = st.session_state.setdefault("chat_mia", [])
     h.append(("user", question))
-    rep = None
-    if CLE_GEMINI and st.session_state.get("nb_questions", 0) < LIMITE_QUESTIONS:
+    direct = reponse_regles(question, defaut=False)          # question courante : réponse exacte et instantanée
+    if direct is not None:
+        h.append(("model", direct))
+    elif CLE_GEMINI and st.session_state.get("nb_questions", 0) < LIMITE_QUESTIONS:
         st.session_state["nb_questions"] = st.session_state.get("nb_questions", 0) + 1
-        rep, err = demander_gemini([(r, t) for r, t in h[-7:]])
-        st.session_state["gemini_err"] = err
-    h.append(("model", rep or reponse_regles(question)))
+        st.session_state["attente_ia"] = question               # l'appel à l'IA se fait à l'écran, avec « Mia réfléchit… »
+    else:
+        h.append(("model", reponse_regles(question)))
 
 
 def vider_chat():
     st.session_state["chat_mia"] = []
+
+
+def traiter_attente(conteneur):
+    q_att = st.session_state.pop("attente_ia", None)
+    if not q_att:
+        return
+    h = st.session_state.setdefault("chat_mia", [])
+    with conteneur:
+        with st.chat_message("assistant", avatar=str(MIA_IMG) if MIA_B64 else humeur()):
+            with st.spinner("Mia réfléchit…"):
+                ia, err = demander_gemini([(r, t) for r, t in h[-7:]])
+            st.session_state["gemini_err"] = None if ia else err
+            final = ia or reponse_regles(q_att)
+            st.markdown(final, unsafe_allow_html=not ia)
+            h.append(("model", final))
 
 
 def chat_flottant():
@@ -730,15 +853,23 @@ def chat_flottant():
                 for r, t in h[-8:]:
                     with st.chat_message("user" if r == "user" else "assistant", avatar=None if r == "user" else (str(MIA_IMG) if MIA_B64 else humeur())):
                         st.markdown(t, unsafe_allow_html=True)
+            if page != "mia":
+                traiter_attente(boite)
             if len(h) < 2:
                 c = st.columns(2)
                 for i, sg in enumerate(SUGGESTIONS):
                     c[i % 2].button(sg, key=f"sg_{i}", on_click=envoyer, args=(sg,), width="stretch")
+            else:
+                with st.expander("Questions rapides"):
+                    for i, sg in enumerate(SUGGESTIONS):
+                        st.button(sg, key=f"sgx_{i}", on_click=envoyer, args=(sg,), width="stretch")
             with st.form("form_mia", clear_on_submit=True, border=False):
                 st.text_input("Votre message", key="msg_mia", placeholder="Écrivez à Mia…", label_visibility="collapsed")
                 f1, f2 = st.columns([3, 2])
                 f1.form_submit_button("Envoyer", on_click=lambda: envoyer(st.session_state.get("msg_mia")), type="primary", width="stretch")
                 f2.form_submit_button("Effacer", on_click=vider_chat, width="stretch")
+            if CLE_GEMINI and st.session_state.get("gemini_err") and st.session_state.get("ia_detail"):
+                st.caption("Détail technique : " + str(st.session_state["ia_detail"]))
             if CLE_GEMINI and st.session_state.get("gemini_err"):
                 st.warning("Mia n'a pas pu utiliser son mode avancé : " + RAISONS.get(st.session_state["gemini_err"], "service indisponible") + ". Elle répond avec ses règles.")
             st.caption("Mia propose, vous décidez." + (" Mia est propulsée par l'IA." if CLE_GEMINI else " Réponses calculées à partir de vos chiffres."))
@@ -760,7 +891,7 @@ chat_flottant()
 
 # ================================================================== A. TABLEAU DE BORD
 if page == "bord":
-    st.markdown(f'<div class="eyebrow">Lumen</div><h2 class="pt">Bonjour, voici l\'essentiel</h2><p class="ps">{periode()} · {len(CAMP)} campagnes · {len(DF)} publications · indicateur suivi : {NOM_M} (objectif « {objectif} »)</p>', unsafe_allow_html=True)
+    st.markdown(f'<div class="eyebrow">Lumen</div><h2 class="pt">Bonjour, voici l\'essentiel</h2><p class="ps">{periode()} · {len(CAMP)} campagnes · {len(DF)} publications · {"un indicateur adapté à chaque campagne" if HETERO else "indicateur suivi : " + NOM_M} (objectif « {objectif} »)</p>', unsafe_allow_html=True)
     if mode == "demo":
         carte("<b>Mode démonstration</b> : ces données sont fictives (lancement d'un festival). Importez vos fichiers dans le menu à gauche pour analyser vos propres campagnes.", "vigil")
 
@@ -800,7 +931,7 @@ if page == "bord":
     st.markdown("### Comparer et suivre")
     g1, g2 = st.columns(2)
     with g1:
-        st.altair_chart(gr.campagnes(CAMP, "_perf", f"{NOM_M} médian par campagne (pointillé = médiane)", ns["EST_TAUX"]), width="stretch")
+        st.altair_chart(graphe_comp(CAMP, f"{NOM_M} médian par campagne (pointillé = médiane)"), width="stretch")
     with g2:
         if not montrer_graphe("tendance"):
             st.info("Il faut des dates pour afficher la tendance.")
@@ -862,7 +993,7 @@ if page == "camp":
         r = CAMP.loc[nom_c]
         m = st.columns(4)
         m[0].metric("Statut", r["Statut"].split(" (")[0])
-        m[1].metric(NOM_M, fm(r["_perf"]), delta=f"{r['Écart à la médiane']:+.0f} % vs médiane")
+        m[1].metric(str(r["_kpi"]), fk(nom_c), delta=f"{r['Écart à la médiane']:+.0f} % {LIB_ECART}" if pd.notna(r["Écart à la médiane"]) else None)
         m[2].metric("Publications", int(r["Publications"]))
         if "Budget (€)" in r:
             m[3].metric("Budget dépensé", f"{espace(r['Budget (€)'])} €")
@@ -891,7 +1022,8 @@ if page == "mia":
         meilleur = CAMP.index[0] if len(CAMP) else "-"
         faible = CAMP.index[-1] if len(CAMP) else "-"
         resume = (f"{periode().capitalize()}, <b>{len(DF)} publications</b> réparties sur <b>{len(CAMP)} campagnes</b> ont été analysées. "
-                  f"Comme l'objectif est « {objectif} », l'IA suit en priorité le <b>{NOM_M.lower()}</b> : sa valeur médiane est de <b>{fm(DF[METRIQUE].median())}</b>. ")
+                  + (f"Vos campagnes ne mesurent pas toutes la même chose : chacune est suivie avec son indicateur le plus adapté (conversion, engagement, portée, vues…) et comparée à sa propre évolution sur 4 semaines. " if HETERO else
+                   f"Comme l'objectif est « {objectif} », l'IA suit en priorité le <b>{NOM_M.lower()}</b> : sa valeur médiane est de <b>{fm(DF[METRIQUE].median())}</b>. "))
         if len(CAMP) > 1:
             resume += f"La campagne <b>{meilleur}</b> tire les résultats vers le haut, tandis que <b>{faible}</b> est en retrait. "
         if tr is not None:
@@ -1026,7 +1158,7 @@ if page == "mia":
             with c1:
                 montrer_graphe("creneaux")
             with c2:
-                if "jour_heure" in cren:
+                if "jour_heure" in cren and HEURE_OK:
                     t = cren["jour_heure"].head(5).reset_index().rename(columns={"median": f"médiane ({NOM_M})", "count": "publications"})
                     st.markdown("**Top 5 des créneaux jour × heure**")
                     st.dataframe(t.round(4), hide_index=True)
@@ -1036,6 +1168,11 @@ if page == "mia":
                         st.warning(f"Meilleur créneau observé : {j} à {int(hr)} h, mais seulement {int(top['count'])} publication(s) : à confirmer par un test.")
                     else:
                         st.success(f"Meilleur créneau observé : {j} à {int(hr)} h ({int(top['count'])} publications).")
+                elif "jour" in cren:
+                    tj = cren["jour"].reset_index().rename(columns={"median": f"médiane ({NOM_M})", "count": "publications"})
+                    st.markdown("**Meilleurs jours**")
+                    st.dataframe(tj.head(7).round(4), hide_index=True)
+                    st.info("Vos exports n'indiquent pas l'heure de publication : Mia classe seulement les jours.")
 
         st.markdown("##### Quels formats et quels canaux privilégier ?")
         comp = ns["COMPORTEMENT"]
@@ -1049,11 +1186,11 @@ if page == "mia":
         canal_i, fmt_i, jour_i, heure_i, ton_i, idees = idees_publications()
         if CLE_GEMINI:
             st.markdown("##### Idées de publications " + badge("rédigées par Mia", "ia"), unsafe_allow_html=True)
-            st.caption(f"Mia s'appuie sur ce qui marche le mieux dans vos données ({fmt_i}, {canal_i}, {jour_i} {heure_i} h) et sur le ton « {ton_i} ». Relisez avant de publier.")
+            st.caption(f"Mia s'appuie sur ce qui marche le mieux dans vos données ({fmt_i}, {canal_i}, {qd(jour_i, heure_i)}) et sur le ton « {ton_i} ». Relisez avant de publier.")
             if st.button("Rédiger 3 publications") and quota_ok():
                 with st.spinner("Mia rédige…"):
                     txt, err = demander_gemini([("user",
-                        f"Rédige 3 propositions de publications prêtes à poster pour {canal_i}, au format {fmt_i}, à publier le {jour_i} vers {heure_i} h. "
+                        f"Rédige 3 propositions de publications prêtes à poster pour {canal_i}, au format {fmt_i}, à publier : {qd(jour_i, heure_i)}. "
                         "Pour chacune : un titre court, le texte (avec emojis si adapté au canal), l'appel à l'action, et une phrase qui explique pourquoi, d'après les données.")])
                 st.session_state["idees_gemini"] = txt or f"Mia n'a pas pu rédiger : {RAISONS.get(err, 'service indisponible')}. Voici les modèles prédéfinis ci-dessous."
             if st.session_state.get("idees_gemini"):
@@ -1061,7 +1198,7 @@ if page == "mia":
                     st.markdown(st.session_state["idees_gemini"])
         else:
             st.markdown("##### Idées de publications " + badge("fonction simulée"), unsafe_allow_html=True)
-            st.caption(f"Modèles construits à partir de ce qui marche le mieux dans vos données ({fmt_i}, {canal_i}, {jour_i} {heure_i} h) et du ton conseillé « {ton_i} ». "
+            st.caption(f"Modèles construits à partir de ce qui marche le mieux dans vos données ({fmt_i}, {canal_i}, {qd(jour_i, heure_i)}) et du ton conseillé « {ton_i} ». "
                        "Avec le mode avancé de Mia, ces textes seraient rédigés par l'IA.")
         if not CLE_GEMINI or not st.session_state.get("idees_gemini"):
             for idee in idees:
@@ -1103,59 +1240,31 @@ if page == "mia":
 
     # --- 6. question (simulé)
     with s6:
-        st.subheader("Poser une question à l'assistant")
+        st.subheader("Poser une question à Mia")
         if CLE_GEMINI:
-            st.markdown(badge("Mia · mode avancé", "ia") + " &nbsp;Posez votre question librement. Seuls des chiffres agrégés (tableau des campagnes, indicateurs) "
+            st.markdown(badge("Mia · mode avancé", "ia") + " &nbsp;Cliquez sur une question pour gagner du temps, ou écrivez la vôtre. Seuls des chiffres agrégés "
                         "sont envoyés au service d'IA externe qui aide Mia, jamais vos fichiers. <b>L'IA propose, vous décidez.</b>", unsafe_allow_html=True)
         else:
-            st.markdown(badge("fonction simulée") + " &nbsp;Les réponses sont construites à partir de vos chiffres, sans IA générative. "
-                        "Avec son mode avancé, vous pourriez lui poser vos propres questions.", unsafe_allow_html=True)
-        forts, faibles = points_forts_difficultes()
-        canal_i, fmt_i, jour_i, heure_i, ton_i, _ = idees_publications()
-        reponses = {
-            "Quelle campagne fonctionne le mieux ?": forts[0] if forts else "Pas assez de campagnes pour comparer.",
-            "Quelle campagne pose problème ?": faibles[0] if faibles else "Aucune difficulté nette.",
-            "Quand dois-je publier ?": f"D'après vos données, le meilleur moment est le <b>{jour_i} vers {heure_i} h</b>, en <b>{fmt_i}</b>. Vérifiez la confiance dans « Améliorer contenus et canaux ».",
-            "Où mettre mon budget ?": next((r for r in ns["recommandations"]() if "arbitrer" in r or "Coût" in r), "Pas de données de coût dans vos fichiers."),
-            "Que va-t-il se passer dans les prochaines semaines ?": (
-                f"Prévision : environ <b>{espace(res['prevision']['prévision'].head(4).sum())} {nom_cible}</b> sur les 4 prochaines semaines "
-                f"(fourchette {espace(res['prevision']['bas'].head(4).sum())} à {espace(res['prevision']['haut'].head(4).sum())})."
-                if "erreur" not in res else res["erreur"]),
-            "Mon public est-il satisfait ?": (ns["ALERTE_TXT"] if ns["SENT"] is not None else "Aucun commentaire importé."),
-        }
-        if CLE_GEMINI:
-            histo = st.session_state.setdefault("chat", [])
-            q = st.pills("Exemples de questions", list(reponses), key="pill_q")
-            libre = st.chat_input("Votre question (ex. : « Quelle campagne arrêter ? »)")
-            question = libre or (q if q and st.session_state.get("pill_deja") != q else None)
-            if q:
-                st.session_state["pill_deja"] = q
-            for r, t in histo:
+            st.markdown(badge("fonction simulée") + " &nbsp;Cliquez sur une question, ou écrivez la vôtre : Mia répond à partir de vos chiffres. "
+                        "Avec son mode avancé, elle comprendrait aussi les questions très libres.", unsafe_allow_html=True)
+        st.markdown("**Questions rapides**")
+        cols = st.columns(3)
+        for i, sg in enumerate(SUGGESTIONS):
+            cols[i % 3].button(sg, key=f"s6sg_{i}", on_click=envoyer, args=(sg,), width="stretch")
+        histo = st.session_state.get("chat_mia", [])
+        zone = st.container()
+        with zone:
+            for r, t in histo[-10:]:
                 with st.chat_message("user" if r == "user" else "assistant", avatar=None if r == "user" else (str(MIA_IMG) if MIA_B64 else humeur())):
-                    st.markdown(t)
-            if question and quota_ok():
-                with st.chat_message("user", avatar=None):
-                    st.markdown(question)
-                with st.chat_message("assistant", avatar=(str(MIA_IMG) if MIA_B64 else humeur())):
-                    with st.spinner("Mia réfléchit…"):
-                        txt, err = demander_gemini(histo[-6:] + [("user", question)])
-                    if txt:
-                        st.markdown(txt)
-                        histo += [("user", question), ("model", txt)]
-                    else:
-                        st.warning(f"Mia n'a pas pu utiliser son mode avancé : {RAISONS.get(err, 'service indisponible')}. Voici sa réponse de secours, construite à partir de vos chiffres :")
-                        st.markdown(reponses.get(question, "Choisissez une des questions proposées."), unsafe_allow_html=True)
-            if histo and st.button("Effacer la conversation"):
-                st.session_state["chat"] = []
-                st.rerun()
-        else:
-            q = st.radio("Choisissez une question", list(reponses), index=None)
-            if q:
-                with st.chat_message("user", avatar=None):
-                    st.write(q)
-                with st.chat_message("assistant", avatar=(str(MIA_IMG) if MIA_B64 else humeur())):
-                    st.markdown(reponses[q], unsafe_allow_html=True)
-                    st.caption("Réponse fondée sur vos données. À vous de décider.")
+                    st.markdown(t, unsafe_allow_html=True)
+        traiter_attente(zone)
+        libre = st.chat_input("Ou écrivez votre question à Mia…")
+        if libre:
+            envoyer(libre)
+            st.rerun()
+        if histo and st.button("Effacer la conversation", key="s6_eff"):
+            vider_chat()
+            st.rerun()
 
 # ================================================================== D. RAPPORTS
 if page == "rapport":
@@ -1167,7 +1276,7 @@ if page == "rapport":
     c1, c2 = st.columns(2)
     with c1:
         st.markdown("#### 1. Résultats par campagne")
-        st.altair_chart(gr.campagnes(CAMP, "_perf", f"{NOM_M} médian par campagne", ns["EST_TAUX"]), width="stretch")
+        st.altair_chart(graphe_comp(CAMP, f"{NOM_M} médian par campagne"), width="stretch")
     with c2:
         st.markdown("#### 2. Tendance")
         montrer_graphe("tendance")
