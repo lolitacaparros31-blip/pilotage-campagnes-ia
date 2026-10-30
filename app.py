@@ -25,6 +25,7 @@ NEPTUNE = "#7FBB9E"    # positif : point fort, au-dessus de la moyenne
 ACACIA = "#DACD65"     # vigilance : à surveiller, échantillon fragile, fonction simulée
 SPICE = "#884332"      # alerte : difficulté, en dessous de la moyenne
 GRIS = "#5B6470"
+BORDEAUX = "#722035"  # pourtour de la page
 PAL = [ALL_ABOARD, FUCHSIA, NEPTUNE, "#755139", "#D29380", POSEIDON, "#B98391", "#646049"]
 
 from pathlib import Path
@@ -40,6 +41,8 @@ st.set_page_config(page_title="Lumen · Analyse de campagnes par IA", page_icon=
 SERIF = "Georgia, 'Times New Roman', serif"
 st.markdown(f"""
 <style>
+.carte, .cc, .prio, .alerte-card, div[data-testid="stMetric"] {{border:1px solid #EEE3E6}}
+body::after {{content:"";position:fixed;inset:0;border:12px solid {BORDEAUX};pointer-events:none;z-index:2147483647}}
 div.block-container {{max-width:100% !important;padding:2.2rem 3rem 3rem !important}}
 section[data-testid="stSidebar"] {{min-width:300px}}
 h1, h2, h3, .pt, .lumen {{font-family:{SERIF} !important; color:{POSEIDON}}}
@@ -58,7 +61,7 @@ div[data-testid="stMetricValue"] {{color:{POSEIDON};font-family:{SERIF}}}
 /* Lumen : marque et navigation */
 .lumen {{font-size:30px;font-weight:600;margin:0;line-height:1}}
 .slogan {{color:{FUCHSIA};font-style:italic;font-size:13px;margin:4px 0 2px}} .officiel {{color:{GRIS};font-size:11px;line-height:1.3}}
-section[data-testid="stSidebar"] [data-testid="stRadioOption"] {{background:rgba(255,255,255,.55);border-radius:16px;padding:11px 14px;border:1px solid transparent;width:100%;margin-bottom:8px}}
+section[data-testid="stSidebar"] [data-testid="stRadioOption"] {{background:#fff;border-radius:16px;padding:11px 14px;border:1px solid #EADDE0;width:100%;margin-bottom:8px}}
 section[data-testid="stSidebar"] [data-testid="stRadioOption"]:hover {{background:#fff}}
 section[data-testid="stSidebar"] [data-testid="stRadioOption"][data-selected="true"] {{background:#fff;border-color:{FUCHSIA};box-shadow:0 4px 12px rgba(158,44,106,.15)}}
 section[data-testid="stSidebar"] [data-testid="stRadioOption"] > div > div:first-child {{display:none}}
