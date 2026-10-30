@@ -56,3 +56,6 @@ Seuls des chiffres agrégés sont envoyés à Gemini, jamais les fichiers import
 
 ## Exemple fourni
 Le dossier `assets/exemples/` contient 3 exports **fictifs** (Google Ads, TikTok, Instagram), utilisés par le bouton « Charger l'exemple » du menu. Aucune donnée réelle n'y figure. Les exceptions du `.gitignore` sont limitées à ce dossier.
+
+## Modes Démo et Utilisateur
+En haut du menu : **Démo** (choix entre « Démo appli », le festival fictif, et « Démo examen », les 3 exports fictifs Google Ads / TikTok / Instagram) ou **Utilisateur** (import de ses propres fichiers dans l'onglet ⑤ Données). Les exports (rapport HTML/PDF, Excel, CSV, synthèse de Mia) sont disponibles dans les deux modes.

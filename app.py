@@ -172,6 +172,19 @@ def retirer_commentaires():
     st.session_state["commentaires"] = None
 
 
+def changer_mode():
+    st.session_state["page"] = "donnees"            # on bascule sur la page de choix de la démo, ou d'import des fichiers
+
+
+def choisir_demo(cle):
+    st.session_state["demo_choix"] = cle
+
+
+def passer_utilisateur():
+    st.session_state["mode_app"] = "Utilisateur"
+    st.session_state["page"] = "donnees"
+
+
 def charger_exemple():
     st.session_state["exemple"] = True
     st.session_state["fichiers_importes"] = {}
@@ -197,14 +210,20 @@ TYPES = {"marque": "Une marque ou une entreprise", "politique": "Une campagne po
 with st.sidebar:
     st.markdown(LOGO, unsafe_allow_html=True)
     st.write("")
-    page = st.radio("Navigation", PAGES, format_func=LIBELLES.get, key="page", label_visibility="collapsed")
+    MODE = st.segmented_control("Mode", ["Démo", "Utilisateur"], default="Démo", key="mode_app", on_change=changer_mode,
+                                label_visibility="collapsed", width="stretch") or "Démo"
+    st.write("")
+    page = st.radio("Navigation", PAGES, format_func=lambda k: ("⑤ Démo et exports" if (k == "donnees" and MODE == "Démo") else LIBELLES.get(k)),
+                    key="page", label_visibility="collapsed")
     st.divider()
 
     nb_f = len(st.session_state.get("fichiers_importes") or {})
-    etat = (f"<b>{nb_f} fichier(s) chargé(s)</b>" if nb_f else ("<b>Exemple chargé</b>" if st.session_state.get("exemple") else "<b>Démonstration</b>"))
-    sous = ("vos exports" if nb_f else ("Google Ads, TikTok, Instagram" if st.session_state.get("exemple") else "données fictives"))
+    if MODE == "Démo":
+        examen = st.session_state.get("demo_choix", "appli") == "examen"
+        etat, sous = ("<b>Démo examen</b>", "Google Ads, TikTok, Instagram") if examen else ("<b>Démo appli</b>", "festival (données fictives)")
+    else:
+        etat, sous = ((f"<b>{nb_f} fichier(s) chargé(s)</b>", "vos exports") if nb_f else ("<b>Aucun fichier</b>", "importez vos exports"))
     st.markdown(f'<div class="etat-donnees">{etat}<br><span>{sous}</span></div>', unsafe_allow_html=True)
-    st.button("Importer / exporter mes données", on_click=aller, args=("donnees",), width="stretch")
     st.divider()
     st.markdown("##### Mon objectif")
     objectif = st.selectbox("Que voulez-vous améliorer ?", list(OBJECTIFS), index=3, format_func=OBJECTIFS.get,
@@ -233,41 +252,59 @@ def calculer(fichiers_t, demo, reglages_t, comm):
     return analyser(dict(fichiers_t), demo, dict(reglages_t), comm)
 
 
-ZONE_ETAPES = ZONE_LISTE = ZONE_D = None
+ZONE_ETAPES = ZONE_LISTE = ZONE_D = ZONE_CHOIX = None
+DEMO_CHOIX = st.session_state.get("demo_choix", "appli")
 if page == "donnees":
-    titre_page("Données", "Importez vos exports, puis récupérez vos résultats en un clic.")
+    titre_page("Démo et exports" if MODE == "Démo" else "Données",
+               "Choisissez la démonstration à utiliser, puis récupérez vos résultats en un clic." if MODE == "Démo" else "Importez vos exports, puis récupérez vos résultats en un clic.")
     ZONE_ETAPES = st.container()
     zg, ZONE_D = st.columns([1, 2], gap="large")
     with zg:
-        with st.container(border=True):
-            st.markdown('<div class="serif" style="font-size:22px;color:#123955">Importer</div><div style="color:#5B6470;font-size:13px;margin-bottom:8px">CSV ou Excel exportés de vos comptes</div>', unsafe_allow_html=True)
-            st.file_uploader("Glissez vos fichiers ici", type=["csv", "xls", "xlsx"], accept_multiple_files=True,
-                             key=f"uploader_donnees_{st.session_state.get('up_n', 0)}", on_change=ajouter_fichiers)
-            ZONE_LISTE = st.container()
-            with st.popover("Quel format de fichier ?", width="stretch"):
-                st.markdown("Un export **CSV ou Excel** avec une ligne par publication. Au minimum : le **réseau** (canal), la **date** et les **impressions** (ou la portée). Si le fichier ne contient pas le réseau, Lumen le déduit du nom du fichier (ex. `tiktok_jeunes.csv`).")
-                st.markdown("Les noms français et anglais des exports courants sont reconnus (Meta, TikTok, Google Ads, LinkedIn…). Une information manquante est signalée, jamais devinée.")
-                st.download_button("Télécharger un fichier modèle", MODELE_CSV.encode("utf-8"), file_name="modele_lumen.csv", mime="text/csv", width="stretch")
-            if EXEMPLES.exists():
-                if st.session_state.get("exemple"):
-                    st.button("Revenir à la démonstration", on_click=quitter_exemple, width="stretch")
-                else:
-                    st.button("Charger l'exemple : Google Ads, TikTok, Instagram", on_click=charger_exemple, width="stretch")
-            with st.expander("Ajouter des commentaires (facultatif)"):
-                st.caption("Un CSV avec une colonne de texte (commentaire, text ou message) et, idéalement, une date. Mia en analyse le ton.")
-                if st.session_state.get("commentaires"):
-                    st.success("Commentaires chargés.")
-                    st.button("Retirer les commentaires", on_click=retirer_commentaires, key="ret_comm", width="stretch")
-                else:
-                    st.file_uploader("Commentaires", type=["csv"], key=f"comm_donnees_{st.session_state.get('cm_n', 0)}",
-                                     on_change=ajouter_commentaires, label_visibility="collapsed")
+        if MODE == "Démo":
+            ZONE_CHOIX = st.container()
+        else:
+            with st.container(border=True):
+                st.markdown('<div class="serif" style="font-size:22px;color:#123955">Importer</div><div style="color:#5B6470;font-size:13px;margin-bottom:8px">CSV ou Excel exportés de vos comptes</div>', unsafe_allow_html=True)
+                st.file_uploader("Glissez vos fichiers ici", type=["csv", "xls", "xlsx"], accept_multiple_files=True,
+                                 key=f"uploader_donnees_{st.session_state.get('up_n', 0)}", on_change=ajouter_fichiers)
+                ZONE_LISTE = st.container()
+                with st.popover("Quel format de fichier ?", width="stretch"):
+                    st.markdown("Un export **CSV ou Excel** avec une ligne par publication. Au minimum : le **réseau** (canal), la **date** et les **impressions** (ou la portée). Si le fichier ne contient pas le réseau, Lumen le déduit du nom du fichier (ex. `tiktok_jeunes.csv`).")
+                    st.markdown("Les noms français et anglais des exports courants sont reconnus (Meta, TikTok, Google Ads, LinkedIn…). Une information manquante est signalée, jamais devinée.")
+                    st.download_button("Télécharger un fichier modèle", MODELE_CSV.encode("utf-8"), file_name="modele_lumen.csv", mime="text/csv", width="stretch")
+                with st.expander("Ajouter des commentaires (facultatif)"):
+                    st.caption("Un CSV avec une colonne de texte (commentaire, text ou message) et, idéalement, une date. Mia en analyse le ton.")
+                    if st.session_state.get("commentaires"):
+                        st.success("Commentaires chargés.")
+                        st.button("Retirer les commentaires", on_click=retirer_commentaires, key="ret_comm", width="stretch")
+                    else:
+                        st.file_uploader("Commentaires", type=["csv"], key=f"comm_donnees_{st.session_state.get('cm_n', 0)}",
+                                         on_change=ajouter_commentaires, label_visibility="collapsed")
 
-fichiers = tuple(sorted((st.session_state.get("fichiers_importes") or {}).items()))
-EXEMPLE_ACTIF = (not fichiers) and bool(st.session_state.get("exemple")) and EXEMPLES.exists()
-if EXEMPLE_ACTIF:
-    fichiers = tuple(sorted((f.name, f.read_bytes()) for f in EXEMPLES.glob("*.csv")))
+# Source des données selon le mode : Démo (appli ou examen) ou Utilisateur (ses fichiers)
+if MODE == "Démo":
+    EXEMPLE_ACTIF = DEMO_CHOIX == "examen" and EXEMPLES.exists()
+    fichiers = tuple(sorted((f.name, f.read_bytes()) for f in EXEMPLES.glob("*.csv"))) if EXEMPLE_ACTIF else ()
+    comm_bytes = None
+else:
+    EXEMPLE_ACTIF = False
+    fichiers = tuple(sorted((st.session_state.get("fichiers_importes") or {}).items()))
+    comm_bytes = st.session_state.get("commentaires")
 mode = "import" if fichiers else "demo"
-comm_bytes = st.session_state.get("commentaires")
+
+if MODE == "Utilisateur" and not fichiers:         # mode Utilisateur sans fichier : rien à analyser, on invite à importer
+    if page == "donnees":
+        with ZONE_ETAPES:
+            st.markdown(f'<div class="carte" style="display:flex;align-items:center;padding:14px 26px;margin-bottom:14px"><div class="stp on"><b>1</b>Importer</div>'
+                        f'<div style="flex:1;height:2px;background:#EADDE0;margin:0 14px"></div><div class="stp"><b>2</b>Vérifier</div>'
+                        f'<div style="flex:1;height:2px;background:#EADDE0;margin:0 14px"></div><div class="stp"><b>3</b>Exporter</div></div>', unsafe_allow_html=True)
+        with ZONE_D:
+            st.markdown('<div class="carte info"><b>Vos exports apparaîtront ici</b> dès que vous aurez importé un fichier : rapport complet, Excel, CSV et synthèse de Mia.</div>', unsafe_allow_html=True)
+    else:
+        titre_page({"bord": "Tableau de bord", "camp": "Campagnes", "mia": "Assistant IA", "rapport": "Rapports"}.get(page, ""), "")
+        st.markdown('<div class="carte info"><b>Aucun fichier importé.</b> En mode Utilisateur, Lumen analyse vos propres exports. Importez-les dans l\'onglet ⑤ Données, ou repassez en mode Démo (menu de gauche, en haut).</div>', unsafe_allow_html=True)
+        st.button("Importer mes fichiers", on_click=aller, args=("donnees",), key="imp_vide")
+    st.stop()
 
 try:
     with st.spinner("L'IA analyse les campagnes…"):
@@ -966,10 +1003,13 @@ chat_flottant()
 if page == "bord":
     st.markdown(f'<div class="eyebrow">Lumen · Tableau de bord</div><h2 class="pt">Bonjour, voici l\'essentiel</h2><p class="ps">{periode()} · {len(CAMP)} campagnes · {len(DF)} publications · {"un indicateur adapté à chaque campagne" if HETERO else "indicateur suivi : " + NOM_M} (objectif « {objectif} »)</p>', unsafe_allow_html=True)
     if EXEMPLE_ACTIF:
-        carte("<b>Exemple chargé</b> : ces trois exports (Google Ads, TikTok, Instagram) sont fictifs. Cliquez sur « Revenir à la démonstration » dans l'onglet ⑤ Données pour retrouver le festival.", "vigil")
-    if mode == "demo":
-        carte("<b>Mode démonstration</b> : ces données sont fictives (lancement d'un festival). Importez vos fichiers dans l'onglet ⑤ Données pour analyser vos propres campagnes.", "vigil")
-        st.button("Importer mes fichiers", on_click=aller, args=("donnees",), key="imp_accueil")
+        carte("<b>Démo examen</b> : ces trois exports (Google Ads, TikTok, Instagram) sont fictifs. Vous pouvez changer de démo dans l'onglet ⑤ Démo et exports.", "vigil")
+        st.button("Changer de démo", on_click=aller, args=("donnees",), key="chg_demo")
+    elif mode == "demo":
+        carte("<b>Démo appli</b> : ces données sont fictives (lancement d'un festival). Passez en <b>mode Utilisateur</b> (menu de gauche, en haut) pour analyser vos propres fichiers.", "vigil")
+        c_b1, c_b2, _ = st.columns([1, 1, 3])
+        c_b1.button("Passer en mode Utilisateur", on_click=passer_utilisateur, key="vers_util")
+        c_b2.button("Changer de démo", on_click=aller, args=("donnees",), key="chg_demo2")
 
     n_f = int(CAMP["Statut"].str.startswith("🟢").sum())
     n_b = int(CAMP["Statut"].str.startswith("🔴").sum())
@@ -1463,13 +1503,13 @@ if page == "donnees":
     with ZONE_ETAPES:
         e1 = "ok" if a_donnees else "on"
         st.markdown(f'<div class="carte" style="display:flex;justify-content:space-between;align-items:center;padding:14px 26px;margin-bottom:14px">'
-                    f'<div class="stp {e1}"><b>{"✓" if a_donnees else "1"}</b>Importer</div><div style="flex:1;height:2px;background:{NEPTUNE if a_donnees else "#EADDE0"};margin:0 14px"></div>'
+                    f'<div class="stp {e1 if MODE == "Utilisateur" else "ok"}"><b>✓</b>{"Importer" if MODE == "Utilisateur" else "Choisir la démo"}</div><div style="flex:1;height:2px;background:{NEPTUNE};margin:0 14px"></div>'
                     f'<div class="stp ok"><b>✓</b>Vérifier</div><div style="flex:1;height:2px;background:{FUCHSIA};margin:0 14px"></div>'
                     f'<div class="stp on"><b>3</b>Exporter</div></div>', unsafe_allow_html=True)
 
-    # ---- colonne de gauche : ce qui est chargé et ce que Lumen a compris
-    with ZONE_LISTE:
-        if nb_fic and "source_fichier" in DF:
+    def bloc_liste():
+        """Fichiers pris en compte, et ce que Lumen en a compris."""
+        if MODE == "Utilisateur" and nb_fic and "source_fichier" in DF:
             st.markdown("**Vos fichiers**")
             lignes_f = DF.groupby("source_fichier").agg(n=("canal", "size"), canal=("canal", "first")).reset_index()
             for _, r in lignes_f.iterrows():
@@ -1479,10 +1519,10 @@ if page == "donnees":
                 if nom_orig:
                     c2.button("Retirer", key=f"ret_{nom_orig}", on_click=retirer_fichier, args=(nom_orig,))
             st.button("Tout retirer", on_click=tout_retirer, key="tout_ret")
-        elif EXEMPLE_ACTIF:
-            st.info("Exemple chargé : Google Ads, TikTok et Instagram (données fictives).")
-        else:
-            st.caption("Aucun fichier importé : Lumen affiche la démonstration (données fictives).")
+        elif EXEMPLE_ACTIF and "source_fichier" in DF:
+            st.markdown("**Fichiers de la démo examen**")
+            for _, r in DF.groupby("source_fichier").agg(n=("canal", "size"), canal=("canal", "first")).reset_index().iterrows():
+                st.markdown(f'{pastille(r["canal"], 22)} &nbsp;<span style="font-size:13px">{r["source_fichier"]}</span> <span style="font-size:12px;color:{GRIS}">· {int(r["n"])} lignes</span>', unsafe_allow_html=True)
         st.markdown("**Ce que Lumen a compris**")
         compris = [("ok", f"{DF['canal'].nunique()} réseau(x) reconnu(s) · {len(CAMP)} campagnes"), ("ok", f"{len(DF)} lignes analysées")]
         manquantes = [m for r in ns["RAPPORT_IMPORT"] for m in re.findall(r"dans (\w+) \(laissées", str(r))]
@@ -1495,6 +1535,24 @@ if page == "donnees":
         if ns["SENT"] is None:
             compris.append(("att", "Aucun commentaire à analyser"))
         st.markdown("".join(f'<div style="font-size:13px;margin:3px 0"><span style="color:{NEPTUNE if t == "ok" else ACACIA};font-weight:700">{"✓" if t == "ok" else "!"}</span> {x}</div>' for t, x in compris), unsafe_allow_html=True)
+
+    if MODE == "Démo":
+        with ZONE_CHOIX:
+            with st.container(border=True):
+                st.markdown('<div class="serif" style="font-size:22px;color:#123955">Choisir la démo</div><div style="color:#5B6470;font-size:13px;margin-bottom:8px">Des données fictives, pour découvrir Lumen</div>', unsafe_allow_html=True)
+                for cle, titre, desc, canaux in [("appli", "Démo appli", "Le lancement d'un festival : 6 campagnes fictives (Instagram, TikTok, LinkedIn, Facebook, YouTube, newsletter).", ["instagram", "tiktok", "linkedin", "facebook", "youtube", "newsletter"]),
+                                                 ("examen", "Démo examen", "Les 3 exports fournis pour l'épreuve : Google Ads (réservations), TikTok (jeunes) et Instagram (notoriété).", ["google ads", "tiktok", "instagram"])]:
+                    actif = DEMO_CHOIX == cle
+                    with st.container(border=True):
+                        st.markdown(f'<div style="margin-bottom:6px">{"".join(pastille(c, 24) for c in canaux)}</div><div style="font-weight:700;color:{POSEIDON}">{titre}{"<span class=pill2>ACTIVE</span>" if actif else ""}</div>'
+                                    f'<div style="font-size:13px;color:{GRIS};margin:4px 0 8px">{desc}</div>', unsafe_allow_html=True)
+                        st.button("Démo en cours" if actif else "Utiliser cette démo", key=f"demo_{cle}", on_click=choisir_demo, args=(cle,),
+                                  type="secondary" if actif else "primary", disabled=actif, width="stretch")
+                bloc_liste()
+                st.caption("Pour analyser vos propres fichiers, passez en mode Utilisateur (menu de gauche, en haut).")
+    else:
+        with ZONE_LISTE:
+            bloc_liste()
 
     # ---- colonne de droite : les exports, mis en valeur
     with ZONE_D:
