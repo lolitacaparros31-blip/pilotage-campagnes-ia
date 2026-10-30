@@ -537,6 +537,107 @@ def quota_ok():
     st.session_state["nb_questions"] = n + 1
     return True
 
+# ------------------------------------------------------------------ chat flottant avec Mia (bas à gauche, sur toutes les pages)
+SUGGESTIONS = ["Quelle campagne fonctionne le mieux ?", "Quelle campagne pose problème ?", "Quand dois-je publier ?",
+               "Où mettre mon budget ?", "Mon public est-il satisfait ?", "Que va-t-il se passer ?"]
+
+
+def _prevision_texte():
+    if "erreur" in res:
+        return "Je ne peux pas prévoir honnêtement : " + res["erreur"]
+    pr = res["prevision"]
+    return (f"D'après votre historique, je m'attends à environ <b>{espace(pr['prévision'].head(4).sum())} {nom_cible}</b> sur les 4 prochaines semaines "
+            f"(fourchette {espace(pr['bas'].head(4).sum())} à {espace(pr['haut'].head(4).sum())}). Confiance {res['confiance']} : c'est une estimation, pas une promesse.")
+
+
+def reponse_regles(q):
+    """Réponses de Mia construites à partir de vos chiffres (sans IA générative). Rien n'est inventé."""
+    t = q.lower()
+    forts, faibles = points_forts_difficultes()
+    _, fmt_i, jour_i, heure_i, _, _ = idees_publications()
+    has = lambda *mots: any(m in t for m in mots)
+    if has("bonjour", "salut", "coucou", "hello"):
+        return "Bonjour ! Ravie de vous retrouver. Que voulez-vous savoir sur vos campagnes ?"
+    if has("merci"):
+        return "Avec grand plaisir ! Je suis là dès que vous avez besoin de moi."
+    if has("qui es", "qui êtes", "ton nom", "votre nom"):
+        return "Je suis Mia, l'assistante IA de Lumen. Je lis vos chiffres, je vous explique et je vous propose des pistes : c'est toujours vous qui décidez."
+    if has("publier", "poster", "créneau", "heure", "quand", "jour"):
+        return f"D'après vos données, le meilleur moment observé est le <b>{jour_i} vers {heure_i} h</b>, en format <b>{fmt_i}</b>. Attention : ce créneau repose parfois sur peu de publications, testez-le avant de vous y fier."
+    if has("budget", "coût", "cout", "cpa", "roas", "argent", "dépens", "investir"):
+        return next((r.replace("<b>", "").replace("</b>", "") for r in ns["recommandations"]() if "arbitrer" in r or "Coût" in r), "Je n'ai pas de données de coût dans vos fichiers : ajoutez une colonne « budget » pour que je vous conseille.")
+    if has("prévi", "prevo", "futur", "prochain", "semaine", "objectif", "avenir"):
+        return _prevision_texte()
+    if has("commentaire", "public", "avis", "satisf", "réputation", "reputation", "négatif", "negatif"):
+        return ns["ALERTE_TXT"] if ns["SENT"] is not None else "Je n'ai reçu aucun commentaire à analyser. Importez un CSV de commentaires (menu de gauche) et je vous dirai comment réagit votre public."
+    if has("format", "contenu", "idée", "idee", "texte", "rédig", "post"):
+        return f"Le format qui fonctionne le mieux chez vous est <b>{fmt_i}</b>. Dans « Assistant IA > Améliorer contenus et canaux », je vous propose aussi des idées de publications."
+    if has("meilleur", "mieux", "performe", "réussi", "reussi", "fort", "bravo", "bien"):
+        return forts[0] if forts else "Je n'ai pas assez de campagnes pour en désigner une."
+    if has("problème", "probleme", "faible", "pire", "difficult", "aide", "redress", "mauvais", "inquiet"):
+        return (faibles[0] + " Pas de panique : l'onglet Campagnes détaille les pistes.") if faibles else "Je ne vois aucune difficulté nette pour le moment, bonne nouvelle."
+    for nom in CAMP.index:
+        if nom.lower() in t or any(c in t for c in canaux_de(nom)):
+            r = CAMP.loc[nom]
+            return (f"<b>{nom}</b> : {NOM_M.lower()} médian {fm(r['_perf'])} ({ec(r['Écart à la médiane'])} vs médiane, {int(r['Publications'])} publications). Statut : {r['Statut']}. {reco_campagne(nom)}")
+    return "Je ne suis pas sûre de bien comprendre. Essayez par exemple : « Quelle campagne pose problème ? », « Quand publier ? » ou le nom d'un réseau (TikTok, Instagram…). Avec une clé Gemini, je pourrais répondre à des questions plus libres."
+
+
+def envoyer(question):
+    question = (question or "").strip()
+    if not question:
+        return
+    h = st.session_state.setdefault("chat_mia", [])
+    h.append(("user", question))
+    rep = None
+    if CLE_GEMINI and st.session_state.get("nb_questions", 0) < LIMITE_QUESTIONS:
+        st.session_state["nb_questions"] = st.session_state.get("nb_questions", 0) + 1
+        rep, _ = demander_gemini([(r, t) for r, t in h[-7:]])
+    h.append(("model", rep or reponse_regles(question)))
+
+
+def vider_chat():
+    st.session_state["chat_mia"] = []
+
+
+def chat_flottant():
+    h = st.session_state.get("chat_mia", [])
+    with st.container(key="mia_chat"):
+        with st.popover("Discuter avec Mia"):
+            st.markdown(f'<div class="mia-nom">Mia, votre assistante {humeur()}</div>', unsafe_allow_html=True)
+            boite = st.container(height=330, border=False)
+            with boite:
+                with st.chat_message("assistant", avatar=str(MIA_IMG) if MIA_B64 else humeur()):
+                    st.markdown("Bonjour, c'est Mia ! Posez-moi une question sur vos campagnes, ou choisissez une idée ci-dessous."
+                                + ("" if mode == "import" else " (Je réponds ici avec les données fictives de la démo.)"))
+                for r, t in h[-8:]:
+                    with st.chat_message("user" if r == "user" else "assistant", avatar=None if r == "user" else (str(MIA_IMG) if MIA_B64 else humeur())):
+                        st.markdown(t, unsafe_allow_html=True)
+            if len(h) < 2:
+                c = st.columns(2)
+                for i, sg in enumerate(SUGGESTIONS):
+                    c[i % 2].button(sg, key=f"sg_{i}", on_click=envoyer, args=(sg,), width="stretch")
+            with st.form("form_mia", clear_on_submit=True, border=False):
+                st.text_input("Votre message", key="msg_mia", placeholder="Écrivez à Mia…", label_visibility="collapsed")
+                f1, f2 = st.columns([3, 2])
+                f1.form_submit_button("Envoyer", on_click=lambda: envoyer(st.session_state.get("msg_mia")), type="primary", width="stretch")
+                f2.form_submit_button("Effacer", on_click=vider_chat, width="stretch")
+            st.caption("Mia propose, vous décidez." + (" Propulsé par Gemini." if CLE_GEMINI else " Réponses calculées à partir de vos chiffres."))
+
+
+st.markdown(f"""<style>
+.st-key-mia_chat {{position:fixed !important;left:18px;bottom:18px;z-index:1000;width:auto !important}}
+.st-key-mia_chat button {{border-radius:999px !important;background:{FUCHSIA} !important;background-color:{FUCHSIA} !important;border:2px solid #fff !important;padding:6px 20px 6px 8px !important;box-shadow:0 8px 24px rgba(158,44,106,.45) !important}}
+.st-key-mia_chat button:hover {{background:#B13580 !important}}
+.st-key-mia_chat button p, .st-key-mia_chat button span {{color:#fff !important;font-weight:600}}
+.st-key-mia_chat button::before {{content:"";width:38px;height:38px;border-radius:50%;margin-right:10px;border:2px solid #fff;background:url(data:image/jpeg;base64,{MIA_B64}) center/cover}}
+div[data-testid="stPopoverBody"] {{width:min(440px,92vw);border-radius:20px}}
+section[data-testid="stSidebar"] [data-testid="stSidebarContent"] {{max-height:calc(100vh - 92px);overflow-y:auto}}
+section[data-testid="stSidebar"] {{z-index:100 !important}}
+</style>""", unsafe_allow_html=True)
+chat_flottant()
+
+
 # ------------------------------------------------------------------ les quatre espaces
 
 # ================================================================== A. TABLEAU DE BORD
