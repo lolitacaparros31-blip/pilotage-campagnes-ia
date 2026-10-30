@@ -500,8 +500,10 @@ def points_forts_difficultes():
         forts.append(f"<b>{b}</b> est la campagne qui progresse le mieux ({nk(b)} : {fk(b)}, {ec(CAMP.loc[b, 'Écart à la médiane'])} {LIB_ECART})." if HETERO else f"<b>{b}</b> est la campagne la plus performante ({NOM_M.lower()} médian : {fk(b)}, {ec(CAMP.loc[b, 'Écart à la médiane'])} vs médiane).")
         faibles.append(f"<b>{w}</b> est la campagne qui recule le plus ({nk(w)} : {fk(w)}, {ec(CAMP.loc[w, 'Écart à la médiane'])} {LIB_ECART})." if HETERO else f"<b>{w}</b> est la campagne la plus faible ({NOM_M.lower()} médian : {fk(w)}, {ec(CAMP.loc[w, 'Écart à la médiane'])} vs médiane).")
     comp = ns["COMPORTEMENT"]
-    if "format" in comp and len(comp["format"]) > 1:
-        f = comp["format"]
+    f = comp["format"].dropna(subset=["median"]) if "format" in comp else None
+    if f is not None:
+        f = f[f.index.astype(str) != "non précisé"]
+    if f is not None and len(f) > 1:
         forts.append(f"Le format <b>{f.index[0]}</b> obtient les meilleurs résultats ({fm(f.iloc[0]['median'])}).")
         faibles.append(f"Le format <b>{f.index[-1]}</b> est le moins efficace ({fm(f.iloc[-1]['median'])}).")
     if "cpa" in DF and DF["cpa"].notna().any() and "Coût / action (€)" in CAMP:
@@ -527,7 +529,8 @@ def points_forts_difficultes():
 def idees_publications():
     comp = ns["COMPORTEMENT"]
     canal = comp["canal"].index[0] if "canal" in comp else "instagram"
-    fmt = comp["format"].index[0] if "format" in comp else "image"
+    fmts = [x for x in (comp["format"].dropna(subset=["median"]).index if "format" in comp else []) if str(x) != "non précisé"]
+    fmt = fmts[0] if fmts else ("image" if "format" not in comp else "publication")
     jour = comp["jour"].index[0] if "jour" in comp else "Mardi"
     heure = int(comp["heure"].index[0]) if ("heure" in comp and HEURE_OK) else (18 if "heure" not in comp else None)
     ton = ns["P"]["ton"]
@@ -581,6 +584,11 @@ def qd(jour, heure):
     return f"{jour} vers {heure} h" if heure is not None else f"{jour}"
 
 
+def recos():
+    """Recommandations du moteur, sans les pistes qui portent sur un champ non renseigné."""
+    return [r for r in ns["recommandations"]() if "non précisé" not in str(r)]
+
+
 def ec(x):
     return "n/a" if pd.isna(x) else f"{x:+.0f} %"
 
@@ -590,7 +598,9 @@ def reco_campagne(nom):
     cle = statut_cle(CAMP.loc[nom, "Statut"])
     fmt_best = None
     if "format" in d and d["format"].notna().any() and d[METRIQUE].notna().any():
-        fmt_best = d.groupby("format")[METRIQUE].median().sort_values(ascending=False).index[0]
+        ff = d.groupby("format")[METRIQUE].median().dropna()
+        ff = ff[ff.index.astype(str) != "non précisé"].sort_values(ascending=False)
+        fmt_best = ff.index[0] if len(ff) else None
     prudence = " (peu de publications : à confirmer)" if len(d) < SEUIL else ""
     if cle == "fort":
         return f"Belle dynamique, bravo ! Continuez sur cette lancée{' avec le format ' + str(fmt_best) if fmt_best else ''}{prudence}."
@@ -763,7 +773,7 @@ def pdf_bytes():
         sous_titre=f"{periode().capitalize()} · {len(CAMP)} campagnes · {len(DF)} publications · objectif « {objectif} » · profil « {profil} »",
         demo=("Données fictives (démonstration)" if (mode == "demo" or EXEMPLE_ACTIF) else ""),
         bilan=message_mia(), alertes=alertes, kpis=ns["CARTES"], campagnes=camps, series=series, graphes=graphes,
-        priorites=priorites(), recommandations=ns["recommandations"](), limites=lims))
+        priorites=priorites(), recommandations=recos(), limites=lims))
 
 
 def carte_campagne_html(nom):
@@ -827,7 +837,7 @@ def contexte_ia():
         "Tableau des campagnes (CSV) :", tableau_affichage(CAMP).to_csv(),
         "Points forts : " + " | ".join(map(nettoyer, forts)),
         "Difficultés : " + " | ".join(map(nettoyer, faibles)),
-        "Recommandations calculées : " + " | ".join(map(nettoyer, ns["recommandations"]())),
+        "Recommandations calculées : " + " | ".join(map(nettoyer, recos())),
         f"Prévision : {prevu}.",
         f"Commentaires : {ns['ALERTE_TXT']}",
     ]
@@ -982,7 +992,7 @@ def reponse_regles(q, defaut=True):
     if has("publier", "poster", "créneau", "heure", "quand", "jour"):
         return f"D'après vos données, le meilleur moment observé est <b>{qd(jour_i, heure_i)}</b>, en format <b>{fmt_i}</b>. Attention : ce créneau repose parfois sur peu de publications, testez-le avant de vous y fier."
     if has("budget", "coût", "cout", "cpa", "roas", "argent", "dépens", "investir"):
-        return next((r.replace("<b>", "").replace("</b>", "") for r in ns["recommandations"]() if "arbitrer" in r or "Coût" in r), "Je n'ai pas de données de coût dans vos fichiers : ajoutez une colonne « budget » pour que je vous conseille.")
+        return next((r.replace("<b>", "").replace("</b>", "") for r in recos() if "arbitrer" in r or "Coût" in r), "Je n'ai pas de données de coût dans vos fichiers : ajoutez une colonne « budget » pour que je vous conseille.")
     if has("prévi", "prevo", "futur", "prochain", "semaine", "objectif", "avenir"):
         return _prevision_texte()
     if has("commentaire", "public", "avis", "satisf", "réputation", "reputation", "négatif", "negatif"):
@@ -996,7 +1006,7 @@ def reponse_regles(q, defaut=True):
     if has("résumé", "resume", "synthèse", "synthese", "bilan", "situation", "essentiel", "où en", "ou en"):
         return message_mia()
     if has("conseil", "recommand", "que faire", "quoi faire", "améliorer", "ameliorer", "optimiser", "idée", "idee"):
-        recs = [r.replace("<b>", "").replace("</b>", "") for r in ns["recommandations"]()][:3]
+        recs = [r.replace("<b>", "").replace("</b>", "") for r in recos()][:3]
         return "Voici mes 3 premières pistes : " + " ".join(f"({i}) {r}" for i, r in enumerate(recs, 1))
     if has("alerte", "danger", "crise", "bad buzz"):
         return ns["ALERTE_TXT"] if ns["SENT"] is not None else "Aucune alerte : je n'ai pas de commentaires à surveiller pour le moment."
@@ -1225,7 +1235,10 @@ if page == "camp":
         lignes = []
         for c, lib in (("format", "Meilleur format"), ("jour", "Meilleur jour"), ("heure", "Meilleure heure")):
             if c in d and d[METRIQUE].notna().any() and d[c].notna().any():
-                tt = d.groupby(c)[METRIQUE].agg(["median", "count"]).sort_values("median", ascending=False)
+                tt = d.groupby(c)[METRIQUE].agg(["median", "count"]).dropna(subset=["median"]).sort_values("median", ascending=False)
+                tt = tt[tt.index.astype(str) != "non précisé"]
+                if tt.empty:
+                    continue
                 v = tt.index[0]
                 lignes.append(f"{lib} : <b>{v}{' h' if c == 'heure' else ''}</b> ({fm(tt.iloc[0]['median'])}, {int(tt.iloc[0]['count'])} publication(s))")
         if lignes:
@@ -1384,7 +1397,7 @@ if page == "mia":
     with s4:
         st.subheader("Recommandations")
         st.caption("Cochez les recommandations que vous décidez d'appliquer : l'IA propose, vous validez.")
-        recs = ns["recommandations"]()
+        recs = recos()
         valid = 0
         for i, rec in enumerate(recs):
             c1, c2 = st.columns([12, 2])
@@ -1545,7 +1558,7 @@ if page == "rapport":
             carte(f, "faible")
 
     st.markdown("#### 5. Recommandations de l'IA")
-    for rec in ns["recommandations"]():
+    for rec in recos():
         carte(rec, "ia")
     st.markdown("#### 6. Prévision")
     if "erreur" in res:
@@ -1603,7 +1616,7 @@ def synthese_texte():
     lignes = [f"LUMEN · Synthèse de Mia · {time.strftime('%d/%m/%Y')}", f"{periode().capitalize()} · {len(CAMP)} campagnes · {len(DF)} publications",
               ("Données fictives (démonstration)" if mode == "demo" else "Données importées"), "", "LE BILAN", brut(message_mia()), "", "VOS PRIORITÉS"]
     lignes += [f"{i}. {t} : {brut(x)}" for i, (t, _, x) in enumerate(priorites(), 1)]
-    lignes += ["", "LES RECOMMANDATIONS DE MIA"] + [f"- {brut(r)}" for r in ns["recommandations"]()]
+    lignes += ["", "LES RECOMMANDATIONS DE MIA"] + [f"- {brut(r)}" for r in recos()]
     lignes += ["", "LIMITES DE L'ANALYSE"] + [f"- {brut(l)}" for l in ns["limites"]()]
     lignes += ["", "Mia propose, vous décidez."]
     return "\n".join(lignes)
@@ -1612,7 +1625,7 @@ def synthese_texte():
 def xlsx_bytes():
     bio = io.BytesIO()
     conseils = [("Bilan de Mia", brut(message_mia()))] + [(f"Priorité {i} · {t}", brut(x)) for i, (t, _, x) in enumerate(priorites(), 1)]
-    conseils += [(f"Recommandation {i}", brut(r)) for i, r in enumerate(ns["recommandations"](), 1)] + [("Limite", brut(l)) for l in ns["limites"]()]
+    conseils += [(f"Recommandation {i}", brut(r)) for i, r in enumerate(recos(), 1)] + [("Limite", brut(l)) for l in ns["limites"]()]
     with pd.ExcelWriter(bio, engine="openpyxl") as w:
         tableau_affichage(CAMP).to_excel(w, sheet_name="Campagnes")
         DF.to_excel(w, sheet_name="Données", index=False)
