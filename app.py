@@ -86,8 +86,9 @@ section[data-testid="stSidebar"] [data-testid="stRadioOption"] p {{font-size:15p
 .alerte-card.faible {{border-left:7px solid {SPICE}}} .alerte-card.fort {{border-left:7px solid {NEPTUNE}}} .alerte-card.moyen {{border-left:7px solid {ACACIA}}}
 .alerte-card .e {{letter-spacing:.12em;text-transform:uppercase;font-size:11px;font-weight:700}} .alerte-card .g {{font-family:{SERIF};font-size:44px;margin:6px 0;color:{POSEIDON}}}
 .gauge {{height:8px;background:#EFE6D8;border-radius:9px;margin:14px 0 10px;position:relative}} .gauge i {{position:absolute;left:0;top:0;height:8px;border-radius:9px}} .gauge u {{position:absolute;left:50%;top:-3px;width:2px;height:14px;background:{POSEIDON};text-decoration:none}}
-.st-key-mia_bulle {{position:fixed !important;right:18px;bottom:88px;width:330px !important;z-index:999;background:#fff;border:1px solid #F1DCE7;border-radius:22px 22px 6px 22px;padding:14px 16px 8px;box-shadow:0 12px 32px rgba(158,44,106,.22)}}
-.st-key-mia_bulle p {{font-size:14px;line-height:1.45;color:{POSEIDON};margin:0 0 4px}} .st-key-mia_bulle button {{border:none !important;background:transparent !important;color:{GRIS} !important;padding:0 !important;min-height:0 !important;font-size:12px}}
+.mia-carte {{background:#FBF3F7;border:1px solid #F1DCE7;border-radius:18px;padding:14px 18px;min-height:150px;box-shadow:0 4px 16px rgba(158,44,106,.10)}}
+.mia-carte .h {{display:flex;gap:10px;align-items:center;margin-bottom:6px}} .mia-carte .n {{font-family:{SERIF};font-weight:700;color:{FUCHSIA}}} .mia-carte .m {{font-size:14px;color:{POSEIDON};line-height:1.45}}
+.mia-mini {{display:inline-block;width:36px;height:36px;border-radius:50%;background:#F1DCE7 center/cover no-repeat;border:2px solid #fff;box-shadow:0 2px 8px rgba(158,44,106,.3)}}
 </style>
 """, unsafe_allow_html=True)
 
@@ -498,10 +499,6 @@ def bulle_mia():
     return "J'ai analysé votre campagne. Une question ? Je suis là."
 
 
-def fermer_bulle():
-    st.session_state["bulle_fermee"] = True
-
-
 res = prev.prevoir_serie(DF, CIBLE, 8)
 
 # ------------------------------------------------------------------ Gemini (facultatif)
@@ -723,10 +720,14 @@ if page == "bord":
                 st.markdown(carte_campagne_html(nom), unsafe_allow_html=True)
                 st.button("Ouvrir la fiche", key=f"fiche_{nom}", on_click=aller, args=("camp", nom))
 
-    st.markdown("### Vos 3 priorités")
-    cols = st.columns(3)
-    for i, (c, (titre, cle, txt)) in enumerate(zip(cols, priorites()), 1):
+    st.markdown("### Vos priorités et les conseils de Mia")
+    cols = st.columns(4)
+    for i, (c, (titre, cle, txt)) in enumerate(zip(cols[:3], priorites()), 1):
         c.markdown(f'<div class="prio {cle}"><div class="prio-t"><span class="prio-n">{i}</span>{titre}</div>{txt}</div>', unsafe_allow_html=True)
+    with cols[3]:
+        st.markdown(f'<div class="mia-carte"><div class="h"><span class="mia-mini" style="background-image:url(data:image/jpeg;base64,{MIA_B64})"></span><span class="n">Mia vous dit {humeur()}</span></div><div class="m">« {bulle_mia()} »</div></div>', unsafe_allow_html=True)
+    with st.expander("Lire le message complet de Mia"):
+        st.markdown(message_mia(), unsafe_allow_html=True)
 
     st.markdown("### Chiffres clés")
     afficher_cartes()
@@ -742,11 +743,6 @@ if page == "bord":
         montrer_graphe("canal")
     with c2:
         montrer_graphe("creneaux") or montrer_graphe("benchmark")
-
-    if not st.session_state.get("bulle_fermee"):
-        with st.container(key="mia_bulle"):
-            st.markdown(f"**Mia** {humeur()}<br>{bulle_mia()}", unsafe_allow_html=True)
-            st.button("Fermer", key="fermer_bulle", on_click=fermer_bulle)
 
 # ================================================================== B. CAMPAGNES
 if page == "camp":
